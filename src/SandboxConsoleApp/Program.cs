@@ -11,11 +11,25 @@ using var loggerFactory = LoggerFactory.Create(builder =>
 });
 var logger = loggerFactory.CreateLogger<Program>();
 
-// enable datadog (use udp port)
+// Run Server first
+var host = "127.0.0.1";
+var port = 8125;
+using var cts = new CancellationTokenSource();
+var server = new UdpServer(host, port)
+{
+    OnRecieveMessage = (_, text) =>
+    {
+        // echo client message on server.
+        logger.LogInformation(text);
+    }
+};
+var serverTask = Task.Run(async () => await server.ListenAsync(cts.Token), cts.Token);
+
+// Run Client (datadog agent with udp)
 var dogstatsdConfig = new StatsdConfig
 {
-    StatsdServerName = "localhost",
-    StatsdPort = 8125,
+    StatsdServerName = host,
+    StatsdPort = port,
     ConstantTags = new[] { $"app:SandboxConsoleApp" },
 };
 DogStatsd.Configure(dogstatsdConfig);
@@ -24,9 +38,9 @@ DogStatsd.Configure(dogstatsdConfig);
 var tracker = new ClrTracker(logger);
 tracker.StartTracker();
 
-Console.CancelKeyPress += ConsoleHelper.OnConsoleCancelKeyPress;
-
+// Allocate and GC
 logger.LogInformation("Press Ctrl+C to cancel execution.");
+Console.CancelKeyPress += ConsoleHelper.OnConsoleCancelKeyPress;
 while (!ConsoleHelper.IsCancelPressed)
 {
     Allocate10();
@@ -35,8 +49,10 @@ while (!ConsoleHelper.IsCancelPressed)
     await Task.Delay(100);
 }
 
+// stop
 tracker.StopTracker();
 tracker.CancelTracker();
+cts.Cancel();
 
 static void Allocate10()
 {
@@ -63,5 +79,32 @@ public static class ConsoleHelper
         e.Cancel = true;
         IsCancelPressed = true;
         Console.WriteLine("Cancel key trapped...!");
+    }
+}
+
+public class UdpServer : IDisposable
+{
+    private System.Net.Sockets.UdpClient _udp;
+
+    public Action<System.Net.IPEndPoint, string>? OnRecieveMessage { get; set; }
+
+    public UdpServer(string host, int port)
+    {
+        var endpoint = new System.Net.IPEndPoint(System.Net.IPAddress.Parse(host), port);
+        _udp = new System.Net.Sockets.UdpClient(endpoint);
+    }
+
+    public void Dispose()
+    {
+        _udp.Dispose();
+    }
+
+    public async ValueTask ListenAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            var result = await _udp.ReceiveAsync(ct);
+            OnRecieveMessage?.Invoke(result.RemoteEndPoint, System.Text.Encoding.UTF8.GetString(result.Buffer));
+        }
     }
 }
