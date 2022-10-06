@@ -1,0 +1,6 @@
+services:
+  datadog-mock:
+    image: alpine:latest
+    command: /bin/sh -c "nc -u -lp 8125"
+    ports:
+      - "8125:8125/udp"
