@@ -22,4 +22,9 @@ public static class TestHelpers
     {
         GC.AllocateArray<int>(100);
     }
+
+    public static void AddMemoryPressureGC100KB()
+    {
+        GC.AddMemoryPressure(1024000); // 1MB
+    }
 }
