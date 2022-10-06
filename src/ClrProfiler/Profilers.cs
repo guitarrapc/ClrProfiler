@@ -5,7 +5,7 @@ using System.Diagnostics;
 
 namespace ClrProfiler;
 
-public interface IProfiler
+public interface IProfiler : IDisposable
 {
     /// <summary>
     /// Profiler Name
@@ -75,6 +75,11 @@ public class GCEventProfiler : IProfiler
             await listener.OnReadResultAsync(cancellationToken).ConfigureAwait(false);
         }
     }
+
+    public void Dispose()
+    {
+        listener?.Dispose();
+    }
 }
 
 public class ThreadPoolEventProfiler : IProfiler
@@ -117,6 +122,11 @@ public class ThreadPoolEventProfiler : IProfiler
             await listener.OnReadResultAsync(cancellationToken).ConfigureAwait(false);
         }
     }
+
+    public void Dispose()
+    {
+        listener?.Dispose();
+    }
 }
 
 public class ContentionEventProfiler : IProfiler
@@ -158,6 +168,11 @@ public class ContentionEventProfiler : IProfiler
         {
             await listener.OnReadResultAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    public void Dispose()
+    {
+        listener?.Dispose();
     }
 }
 
@@ -202,6 +217,11 @@ public class ThreadInfoTimerProfiler : IProfiler
             await listener.OnReadResultAsync(cancellationToken).ConfigureAwait(false);
         }
     }
+
+    public void Dispose()
+    {
+        listener?.Dispose();
+    }
 }
 
 public class GCInfoTimerProfiler : IProfiler
@@ -245,6 +265,11 @@ public class GCInfoTimerProfiler : IProfiler
             await listener.OnReadResultAsync(cancellationToken).ConfigureAwait(false);
         }
     }
+
+    public void Dispose()
+    {
+        listener?.Dispose();
+    }
 }
 
 public class ProcessInfoTimerProfiler : IProfiler
@@ -287,5 +312,10 @@ public class ProcessInfoTimerProfiler : IProfiler
         {
             await listener.OnReadResultAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    public void Dispose()
+    {
+        listener?.Dispose();
     }
 }

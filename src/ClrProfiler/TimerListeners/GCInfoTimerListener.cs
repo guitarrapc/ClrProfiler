@@ -61,15 +61,8 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
 
     public void Dispose()
     {
-        var count = Interlocked.Decrement(ref initializedCount);
-        if (count == 0)
-        {
-            var target = Interlocked.Exchange(ref timer, null);
-            if (target != null)
-            {
-                target.Dispose();
-            }
-        }
+        initializedCount = 0;
+        timer?.Dispose();
     }
 
     public async ValueTask OnReadResultAsync(CancellationToken cancellationToken)
