@@ -5,6 +5,7 @@ namespace ClrProfilerUnitTest;
 
 public static class TestHelpers
 {
+    public const int WARMUP_GC_COUNT = 10;
     /// <summary>
     /// Pre warmup GC
     /// </summary>
@@ -17,7 +18,7 @@ public static class TestHelpers
         GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
 
         // Run GC several times and get stable for memory status
-        for (var i = 0; i < 10; i++)
+        for (var i = 0; i < WARMUP_GC_COUNT; i++)
         {
             // Specifying true for the compacting argument guarantees a compacting, full blocking garbage collection.
             GC.Collect(2, GCCollectionMode.Forced, true, true);
