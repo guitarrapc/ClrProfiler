@@ -1,7 +1,7 @@
 using System.Runtime;
 using Xunit.Sdk;
 
-namespace ClrProfilerUnitTest;
+namespace ClrProfiler.UnitTest;
 
 public static class TestHelpers
 {

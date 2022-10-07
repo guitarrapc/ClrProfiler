@@ -1,4 +1,4 @@
-namespace ClrProfilerUnitTest;
+namespace ClrProfiler.UnitTest;
 
 [CollectionDefinition(nameof(TestCollectionDefinition), DisableParallelization = true)]
 

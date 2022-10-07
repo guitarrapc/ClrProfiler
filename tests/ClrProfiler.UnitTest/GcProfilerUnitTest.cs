@@ -1,7 +1,7 @@
 using ClrProfiler.Statistics;
 using FluentAssertions;
 
-namespace ClrProfilerUnitTest;
+namespace ClrProfiler.UnitTest;
 
 [Collection(nameof(TestCollectionDefinition))]
 public class GcProfilerUnitTest
@@ -96,50 +96,6 @@ public class GcProfilerUnitTest
         actual.Gen1Count.Should().Be(gen1GCCount);
         actual.Gen2Count.Should().Be(gen2GCCount);
         actual.Gen0Size.Should().Be(24);
-
-        cts.Cancel();
-    }
-
-    [Fact]
-    public void GCEventProfilerTest()
-    {
-        var gen0GCCount = GC.CollectionCount(0) + TestHelpers.WARMUP_GC_COUNT;
-        var gen1GCCount = GC.CollectionCount(1) + TestHelpers.WARMUP_GC_COUNT;
-        var gen2GCCount = GC.CollectionCount(2) + TestHelpers.WARMUP_GC_COUNT;
-        TestHelpers.PrewarmupGC();
-
-        var before = GC.GetTotalAllocatedBytes(true);
-        using var cts = new CancellationTokenSource();
-        var complete = false;
-        var actual = new GCEventStatistics();
-        Func<GCEventStatistics, Task> onSuccess = async (statistics) =>
-        {
-            actual = statistics;
-            complete = true;
-        };
-        Action<Exception> onError = (exception) =>
-        {
-            complete = true;
-            throw new Exception("Exception Happen", exception);
-        };
-        using var profiler = new GCEventProfiler(onSuccess, onError);
-        var after = GC.GetTotalAllocatedBytes(true);
-        var diff = after - before;
-
-        // RunProfile
-        var before2 = GC.GetTotalAllocatedBytes(true);
-        profiler.Start();
-        _ = profiler.ReadResultAsync(cts.Token);
-        while (!complete)
-        {
-            Thread.Sleep(50);
-        }
-        profiler.Stop();
-        complete = false;
-
-        var after2 = GC.GetTotalAllocatedBytes(true);
-        var diff2 = after2 - before2; // 5288-5856
-        var total = GC.GetTotalAllocatedBytes(true);
 
         cts.Cancel();
     }

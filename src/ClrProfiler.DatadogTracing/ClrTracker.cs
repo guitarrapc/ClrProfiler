@@ -10,7 +10,7 @@ public class ClrTracker
 
     public ClrTracker(ILogger logger)
     {
-        this._logger = logger;
+        _logger = logger;
         EnableTracker();
     }
 

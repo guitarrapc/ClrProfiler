@@ -1,7 +1,7 @@
 using ClrProfiler.Statistics;
 using FluentAssertions;
 
-namespace ClrProfilerUnitTest;
+namespace ClrProfiler.UnitTest;
 
 [Collection(nameof(TestCollectionDefinition))]
 public class GCUnitTest
