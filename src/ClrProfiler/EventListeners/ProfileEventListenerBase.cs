@@ -137,7 +137,9 @@ public abstract class ProfileEventListenerBase : EventListener
     {
         Enabled = true;
         foreach (var enabled in _enabledEventSourceList)
+        {
             EnableEvents(enabled, EventLevel.Informational, _keywords);
+        }
     }
     /// <summary>
     /// Stop listner
@@ -146,7 +148,9 @@ public abstract class ProfileEventListenerBase : EventListener
     {
         Enabled = false;
         foreach (var enabled in _enabledEventSourceList)
+        {
             DisableEvents(enabled);
+        }
     }
 
     /// <summary>

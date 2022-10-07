@@ -33,6 +33,7 @@ public readonly struct GCInfoStatistics : IEquatable<GCInfoStatistics>
     /// </summary>
     public readonly GCLatencyMode LatencyMode;
     public readonly long HeapSize;
+    public readonly long TotalAllocationBytes;
     public readonly int Gen0Count;
     public readonly int Gen1Count;
     public readonly int Gen2Count;
@@ -57,13 +58,14 @@ public readonly struct GCInfoStatistics : IEquatable<GCInfoStatistics>
     /// </summary>
     public readonly ulong LohSize;
 
-    public GCInfoStatistics(DateTime date, GCMode gCMode, GCLargeObjectHeapCompactionMode compactionMode, GCLatencyMode latencyMode, long heapSize, int gen0Count, int gen1Count, int gen2Count, int timeInGc, ulong gen0Size, ulong gen1Size, ulong gen2Size, ulong lohSize)
+    public GCInfoStatistics(DateTime date, GCMode gCMode, GCLargeObjectHeapCompactionMode compactionMode, GCLatencyMode latencyMode, long heapSize, long totalAllocationSize, int gen0Count, int gen1Count, int gen2Count, int timeInGc, ulong gen0Size, ulong gen1Size, ulong gen2Size, ulong lohSize)
     {
         Date = date;
         GCMode = gCMode;
         CompactionMode = compactionMode;
         LatencyMode = latencyMode;
         HeapSize = heapSize;
+        TotalAllocationBytes = totalAllocationSize;
         Gen0Count = gen0Count;
         Gen1Count = gen1Count;
         Gen2Count = gen2Count;
@@ -86,6 +88,7 @@ public readonly struct GCInfoStatistics : IEquatable<GCInfoStatistics>
                EqualityComparer<GCLargeObjectHeapCompactionMode>.Default.Equals(CompactionMode, other.CompactionMode) &&
                EqualityComparer<GCLatencyMode>.Default.Equals(LatencyMode, other.LatencyMode) &&
                HeapSize == other.HeapSize &&
+               TotalAllocationBytes == other.TotalAllocationBytes &&
                Gen0Count == other.Gen0Count &&
                Gen1Count == other.Gen1Count &&
                Gen2Count == other.Gen2Count &&
@@ -104,6 +107,7 @@ public readonly struct GCInfoStatistics : IEquatable<GCInfoStatistics>
         hash.Add(CompactionMode);
         hash.Add(LatencyMode);
         hash.Add(HeapSize);
+        hash.Add(TotalAllocationBytes);
         hash.Add(Gen0Count);
         hash.Add(Gen1Count);
         hash.Add(Gen2Count);

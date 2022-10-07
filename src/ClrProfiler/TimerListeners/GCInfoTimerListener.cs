@@ -90,16 +90,17 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
             var compactionMode = GCSettings.LargeObjectHeapCompactionMode;
             var latencyMode = GCSettings.LatencyMode;
             var heapSize = GC.GetTotalMemory(false); // bytes
+            var totalAllocationBytes = GC.GetTotalAllocatedBytes(false); // bytes. false = approximate. true have performance penalty.
             var gen0Count = GC.CollectionCount(0);
             var gen1Count = GC.CollectionCount(1);
             var gen2Count = GC.CollectionCount(2);
-            var memoryInfo = GC.GetGCMemoryInfo();
+            //var memoryInfo = GC.GetGCMemoryInfo(); // not in use. should we?
             var gen0Size = _getGenerationSizeDelegate?.Invoke(0) ?? 0;
             var gen1Size = _getGenerationSizeDelegate?.Invoke(1) ?? 0;
             var gen2Size = _getGenerationSizeDelegate?.Invoke(2) ?? 0;
             var lohSize = _getGenerationSizeDelegate?.Invoke(3) ?? 0;
             var timeInGc = _getLastGCPercentTimeInGC?.Invoke() ?? 0;
-            var stat = new GCInfoStatistics(date, gcmode, compactionMode, latencyMode, heapSize, gen0Count, gen1Count, gen2Count, timeInGc, gen0Size, gen1Size, gen2Size, lohSize);
+            var stat = new GCInfoStatistics(date, gcmode, compactionMode, latencyMode, heapSize, totalAllocationBytes, gen0Count, gen1Count, gen2Count, timeInGc, gen0Size, gen1Size, gen2Size, lohSize);
 
             _channel.Writer.TryWrite(stat);
         }

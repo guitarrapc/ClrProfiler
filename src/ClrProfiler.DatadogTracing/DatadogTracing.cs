@@ -72,6 +72,7 @@ public static class DatadogTracing
 
     /// list of timer tags
     /// - clr_diagnostics_timer.gc.heap_size // gauge
+    /// - clr_diagnostics_timer.gc.total_allocation_bytes // gauge
     /// - clr_diagnostics_timer.gc.gen0_count // gauge
     /// - clr_diagnostics_timer.gc.gen1_count // gauge
     /// - clr_diagnostics_timer.gc.gen2_count // gauge
@@ -106,6 +107,7 @@ public static class DatadogTracing
         var genLohTags = _tagCache.GetOrAdd(ZString.Concat("genLoh", baseTagkey), key => baseTag.Prepend($"gc_gen:loh").ToArray());
 
         DogStatsd.Gauge("clr_diagnostics_timer.gc.heap_size_bytes", statistics.HeapSize, tags: baseTag);
+        DogStatsd.Gauge("clr_diagnostics_timer.gc.total_allocation_bytes", statistics.TotalAllocationBytes, tags: baseTag);
         DogStatsd.Gauge("clr_diagnostics_timer.gc.gc_count", statistics.Gen0Count, tags: gen0Tags);
         DogStatsd.Gauge("clr_diagnostics_timer.gc.gc_count", statistics.Gen1Count, tags: gen1Tags);
         DogStatsd.Gauge("clr_diagnostics_timer.gc.gc_count", statistics.Gen2Count, tags: gen2Tags);
