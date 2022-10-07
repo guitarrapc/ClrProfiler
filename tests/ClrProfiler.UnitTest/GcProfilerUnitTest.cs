@@ -9,11 +9,6 @@ public class GcProfilerUnitTest
     [Fact]
     public void GCInfoTimerProfilerTest()
     {
-        var gen0GCCount = GC.CollectionCount(0) + TestHelpers.WARMUP_GC_COUNT;
-        var gen1GCCount = GC.CollectionCount(1) + TestHelpers.WARMUP_GC_COUNT;
-        var gen2GCCount = GC.CollectionCount(2) + TestHelpers.WARMUP_GC_COUNT;
-        TestHelpers.PrewarmupGC();
-
         var before = GC.GetTotalAllocatedBytes(true);
         using var cts = new CancellationTokenSource();
         var complete = false;
@@ -32,6 +27,11 @@ public class GcProfilerUnitTest
         using var profiler = new GCInfoTimerProfiler(onSuccess, onError, timer);
         var after = GC.GetTotalAllocatedBytes(true);
         var diff = after - before;
+
+        var gen0GCCount = GC.CollectionCount(0) + TestHelpers.WARMUP_GC_COUNT;
+        var gen1GCCount = GC.CollectionCount(1) + TestHelpers.WARMUP_GC_COUNT;
+        var gen2GCCount = GC.CollectionCount(2) + TestHelpers.WARMUP_GC_COUNT;
+        TestHelpers.PrewarmupGC();
 
         // RunProfile
         var before2 = GC.GetTotalAllocatedBytes(true);
