@@ -9,6 +9,8 @@ public readonly struct ThreadInfoStatistics : IEquatable<ThreadInfoStatistics>
     public readonly int AvailableCompletionPortThreads;
     public readonly int MaxWorkerThreads;
     public readonly int MaxCompletionPortThreads;
+    public readonly int UsingWorkerThreads;
+    public readonly int UsingCompletionPortThreads;
     public readonly int ThreadCount;
     public readonly long QueueLength;
     public readonly long CompletedItemsCount;
@@ -21,6 +23,8 @@ public readonly struct ThreadInfoStatistics : IEquatable<ThreadInfoStatistics>
         AvailableCompletionPortThreads = availableCompletionPortThreads;
         MaxWorkerThreads = maxWorkerThreads;
         MaxCompletionPortThreads = maxCompletionPortThreads;
+        UsingWorkerThreads = maxWorkerThreads - availableWorkerThreads;
+        UsingCompletionPortThreads = maxCompletionPortThreads - availableCompletionPortThreads;
         ThreadCount = threadCount;
         QueueLength = queueLength;
         CompletedItemsCount = completedItemsCount;

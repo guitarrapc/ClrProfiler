@@ -35,17 +35,17 @@ public class ClrTracker
     }
     public void StartTracker()
     {
-        _logger.LogInformation($"Start tracking {nameof(ClrTracker)}");
+        _logger.LogDebug($"Start tracking {nameof(ClrTracker)}");
         ProfilerTracker.Current.Value.Start();
     }
     public void StopTracker()
     {
-        _logger.LogInformation($"Stop tracking {nameof(ClrTracker)}");
+        _logger.LogDebug($"Stop tracking {nameof(ClrTracker)}");
         ProfilerTracker.Current.Value.Stop();
     }
     public void CancelTracker()
     {
-        _logger.LogInformation($"Cancel tracking {nameof(ClrTracker)}");
+        _logger.LogDebug($"Cancel tracking {nameof(ClrTracker)}");
         ProfilerTracker.Current.Value.Cancel();
     }
     private void OnException(Exception exception) => _logger.LogCritical(exception, exception.Message);

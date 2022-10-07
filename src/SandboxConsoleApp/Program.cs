@@ -46,6 +46,7 @@ while (!ConsoleHelper.IsCancelPressed)
     Allocate10();
     Allocate5K();
     GC.Collect();
+    await CreateWorkerThread100Async();
     await Task.Delay(100);
 }
 
@@ -53,6 +54,17 @@ while (!ConsoleHelper.IsCancelPressed)
 tracker.StopTracker();
 tracker.CancelTracker();
 cts.Cancel();
+
+static async Task CreateWorkerThread100Async()
+{
+    var list = new List<Task>();
+    for (var i = 0; i < 100; i++)
+    {
+        list.Add(Task.Delay(TimeSpan.FromMilliseconds(100)));
+    }
+
+    await Task.WhenAll(list);
+}
 
 static void Allocate10()
 {
