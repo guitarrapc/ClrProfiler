@@ -22,4 +22,4 @@ jobs:
       - name: dotnet build
         run: dotnet build -c ${{ env.BUILD_CONFIG }}
       - name: dotnet test
-        run: dotnet test --no-bulld -c ${{ env.BUILD_CONFIG }} --logger GitHubActions
+        run: dotnet test --no-build -c ${{ env.BUILD_CONFIG }} --logger GitHubActions
