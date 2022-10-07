@@ -90,19 +90,9 @@ public class ThreadInfoTimerListener : TimerListenerBase, IDisposable, IChannelR
             var queueLength = ThreadPool.PendingWorkItemCount;
             var completedItemsCount = ThreadPool.CompletedWorkItemCount;
             var lockContentionCount = Monitor.LockContentionCount;
+            var stat = new ThreadInfoStatistics(date, availableWorkerThreads, availableCompletionPortThreads, maxWorkerThreads, maxCompletionPortThreads, threadCount, queueLength, completedItemsCount, lockContentionCount);
 
-            _channel.Writer.TryWrite(new ThreadInfoStatistics
-            {
-                Date = date,
-                AvailableWorkerThreads = availableWorkerThreads,
-                AvailableCompletionPortThreads = availableCompletionPortThreads,
-                MaxWorkerThreads = maxWorkerThreads,
-                MaxCompletionPortThreads = maxCompletionPortThreads,
-                ThreadCount = threadCount,
-                QueueLength = queueLength,
-                CompletedItemsCount = completedItemsCount,
-                LockContentionCount = lockContentionCount,
-            });
+            _channel.Writer.TryWrite(stat);
         }
         catch (Exception ex)
         {

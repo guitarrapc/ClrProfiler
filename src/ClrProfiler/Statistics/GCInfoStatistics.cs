@@ -8,11 +8,11 @@ public enum GCMode
     Workstation = 0,
     Server = 1,
 }
-public struct GCInfoStatistics : IEquatable<GCInfoStatistics>
+public readonly struct GCInfoStatistics : IEquatable<GCInfoStatistics>
 {
-    public DateTime Date { get; set; }
-    public GCMode GCMode { get; set; }
-    public GCLargeObjectHeapCompactionMode CompactionMode { get; set; }
+    public readonly DateTime Date;
+    public readonly GCMode GCMode;
+    public readonly GCLargeObjectHeapCompactionMode CompactionMode;
     /// <summary>
     /// <strong>Batch</strong>
     /// For applications that have no user interface (UI) or server-side operations.
@@ -31,31 +31,48 @@ public struct GCInfoStatistics : IEquatable<GCInfoStatistics>
     /// <br/>
     /// ref: <a href="https://docs.microsoft.com/en-us/dotnet/standard/garbage-collection/latency">Microsoft Docs/Garbase-Collection/Latency</a>
     /// </summary>
-    public GCLatencyMode LatencyMode { get; set; }
-    public long HeapSize { get; set; }
-    public int Gen0Count { get; set; }
-    public int Gen1Count { get; set; }
-    public int Gen2Count { get; set; }
+    public readonly GCLatencyMode LatencyMode;
+    public readonly long HeapSize;
+    public readonly int Gen0Count;
+    public readonly int Gen1Count;
+    public readonly int Gen2Count;
     /// <summary>
     /// Percent
     /// </summary>
-    public int TimeInGc { get; set; }
+    public readonly int TimeInGc;
     /// <summary>
     /// bytes
     /// </summary>
-    public ulong Gen0Size { get; set; }
+    public readonly ulong Gen0Size;
     /// <summary>
     /// bytes
     /// </summary>
-    public ulong Gen1Size { get; set; }
+    public readonly ulong Gen1Size;
     /// <summary>
     /// bytes
     /// </summary>
-    public ulong Gen2Size { get; set; }
+    public readonly ulong Gen2Size;
     /// <summary>
     /// bytes
     /// </summary>
-    public ulong LohSize { get; set; }
+    public readonly ulong LohSize;
+
+    public GCInfoStatistics(DateTime date, GCMode gCMode, GCLargeObjectHeapCompactionMode compactionMode, GCLatencyMode latencyMode, long heapSize, int gen0Count, int gen1Count, int gen2Count, int timeInGc, ulong gen0Size, ulong gen1Size, ulong gen2Size, ulong lohSize)
+    {
+        Date = date;
+        GCMode = gCMode;
+        CompactionMode = compactionMode;
+        LatencyMode = latencyMode;
+        HeapSize = heapSize;
+        Gen0Count = gen0Count;
+        Gen1Count = gen1Count;
+        Gen2Count = gen2Count;
+        TimeInGc = timeInGc;
+        Gen0Size = gen0Size;
+        Gen1Size = gen1Size;
+        Gen2Size = gen2Size;
+        LohSize = lohSize;
+    }
 
     public override bool Equals(object? obj)
     {

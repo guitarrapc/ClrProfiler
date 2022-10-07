@@ -89,7 +89,7 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
             // https://docs.microsoft.com/en-us/dotnet/api/system.runtime.gcsettings.largeobjectheapcompactionmode
             var compactionMode = GCSettings.LargeObjectHeapCompactionMode;
             var latencyMode = GCSettings.LatencyMode;
-            var gcHeapSize = GC.GetTotalMemory(false); // bytes
+            var heapSize = GC.GetTotalMemory(false); // bytes
             var gen0Count = GC.CollectionCount(0);
             var gen1Count = GC.CollectionCount(1);
             var gen2Count = GC.CollectionCount(2);
@@ -99,23 +99,9 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
             var gen2Size = _getGenerationSizeDelegate?.Invoke(2) ?? 0;
             var lohSize = _getGenerationSizeDelegate?.Invoke(3) ?? 0;
             var timeInGc = _getLastGCPercentTimeInGC?.Invoke() ?? 0;
+            var stat = new GCInfoStatistics(date, gcmode, compactionMode, latencyMode, heapSize, gen0Count, gen1Count, gen2Count, timeInGc, gen0Size, gen1Size, gen2Size, lohSize);
 
-            _channel.Writer.TryWrite(new GCInfoStatistics
-            {
-                Date = date,
-                GCMode = gcmode,
-                CompactionMode = compactionMode,
-                LatencyMode = latencyMode,
-                Gen0Count = gen0Count,
-                Gen1Count = gen1Count,
-                Gen2Count = gen2Count,
-                Gen0Size = gen0Size,
-                Gen1Size = gen1Size,
-                Gen2Size = gen2Size,
-                LohSize = lohSize,
-                HeapSize = gcHeapSize,
-                TimeInGc = timeInGc,
-            });
+            _channel.Writer.TryWrite(stat);
         }
         catch (Exception ex)
         {

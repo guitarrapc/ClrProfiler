@@ -37,14 +37,10 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
                 long time = eventData.TimeStamp.Ticks;
                 var flag = byte.Parse(eventData.Payload?[0]?.ToString() ?? "0");
                 var durationNs = double.Parse(eventData.Payload?[2]?.ToString() ?? "0");
+                var stat = new ContentionEventStatistics(time, flag, durationNs);
 
                 // write to channel
-                _channel.Writer.TryWrite(new ContentionEventStatistics
-                {
-                    Time = time,
-                    Flag = flag,
-                    DurationNs = durationNs,
-                });
+                _channel.Writer.TryWrite(stat);
             }
         }
         catch (Exception ex)

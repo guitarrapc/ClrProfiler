@@ -86,22 +86,10 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
                 var gcIndex = uint.Parse(eventData.Payload?[0]?.ToString() ?? "0");
                 var generation = uint.Parse(eventData.Payload?[1]?.ToString() ?? "0");
                 var duration = (double)(timeGCEnd - timeGCStart) / 10.0 / 1000.0;
+                var stat = new GCStartEndStatistics(gcIndex, type, generation, reason, duration, timeGCStart, timeGCEnd);
 
                 // write to channel
-                _channel.Writer.TryWrite(new GCEventStatistics
-                {
-                    Type = GCEventType.GCStartEnd,
-                    GCStartEndStatistics = new GCStartEndStatistics
-                    {
-                        Index = gcIndex,
-                        Type = type,
-                        Generation = generation,
-                        Reason = reason,
-                        DurationMillsec = duration,
-                        GCStartTime = timeGCStart,
-                        GCEndTime = timeGCEnd,
-                    }
-                });
+                _channel.Writer.TryWrite(new GCEventStatistics(GCEventType.GCStartEnd, stat, new ()));
             }
             else if (eventData.EventName.StartsWith("GCSuspendEEBegin", StringComparison.OrdinalIgnoreCase))
             {
@@ -113,18 +101,10 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
             {
                 var suspendEnd = eventData.TimeStamp.Ticks;
                 var duration = (double)(suspendEnd - suspendTimeGCStart) / 10.0 / 1000.0;
+                var stat = new GCSuspendStatistics(duration, suspendReason, suspendCount);
 
                 // write to channel
-                _channel.Writer.TryWrite(new GCEventStatistics
-                {
-                    Type = GCEventType.GCSuspend,
-                    GCSuspendStatistics = new GCSuspendStatistics
-                    {
-                        Reason = suspendReason,
-                        DurationMillisec = duration,
-                        Count = suspendCount,
-                    }
-                });
+                _channel.Writer.TryWrite(new GCEventStatistics(GCEventType.GCSuspend, new(), stat));
             }
         }
         catch (Exception ex)

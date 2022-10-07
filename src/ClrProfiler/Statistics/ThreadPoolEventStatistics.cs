@@ -11,11 +11,18 @@ public enum ThreadPoolStatisticType
 /// <summary>
 /// Data structure represent WorkerThreadPool statistics
 /// </summary>
-public struct ThreadPoolEventStatistics : IEquatable<ThreadPoolEventStatistics>
+public readonly struct ThreadPoolEventStatistics : IEquatable<ThreadPoolEventStatistics>
 {
-    public ThreadPoolStatisticType Type { get; set; }
-    public ThreadPoolWorkerStatistics ThreadPoolWorker { get; set; }
-    public ThreadPoolAdjustmentStatistics ThreadPoolAdjustment { get; set; }
+    public readonly ThreadPoolStatisticType Type;
+    public readonly ThreadPoolWorkerStatistics ThreadPoolWorker;
+    public readonly ThreadPoolAdjustmentStatistics ThreadPoolAdjustment;
+
+    public ThreadPoolEventStatistics(ThreadPoolStatisticType type, ThreadPoolWorkerStatistics threadPoolWorker, ThreadPoolAdjustmentStatistics threadPoolAdjustment)
+    {
+        Type = type;
+        ThreadPoolWorker = threadPoolWorker;
+        ThreadPoolAdjustment = threadPoolAdjustment;
+    }
 
     public override bool Equals(object? obj)
     {
@@ -47,16 +54,22 @@ public struct ThreadPoolEventStatistics : IEquatable<ThreadPoolEventStatistics>
 
 public struct ThreadPoolWorkerStatistics : IEquatable<ThreadPoolWorkerStatistics>
 {
-    public long Time { get; set; }
+    public readonly long Time;
     /// <summary>
     /// Number of worker threads available to process work, including those that are already processing work.
     /// </summary>
-    public uint ActiveWrokerThreads { get; set; }
+    public readonly uint ActiveWrokerThreads;
     /// <summary>
     /// Number of worker threads that are not available to process work, but that are being held in reserve in case more threads are needed later.
     /// Always 0 on ThreadPoolWorkerThreadStart and ThreadPoolWorkerThreadStop
     /// </summary>
-    //public uint RetiredWrokerThreads { get; set; }
+    //public readonly uint RetiredWrokerThreads;
+
+    public ThreadPoolWorkerStatistics(long time, uint activeWrokerThreads)
+    {
+        Time = time;
+        ActiveWrokerThreads = activeWrokerThreads;
+    }
 
     public override bool Equals(object? obj)
     {
@@ -85,11 +98,11 @@ public struct ThreadPoolWorkerStatistics : IEquatable<ThreadPoolWorkerStatistics
     }
 }
 
-public struct ThreadPoolAdjustmentStatistics : IEquatable<ThreadPoolAdjustmentStatistics>
+public readonly struct ThreadPoolAdjustmentStatistics : IEquatable<ThreadPoolAdjustmentStatistics>
 {
-    public long Time { get; set; }
-    public double AverageThrouput { get; set; }
-    public uint NewWorkerThreads { get; set; }
+    public readonly long Time;
+    public readonly double AverageThrouput;
+    public readonly uint NewWorkerThreads;
     /// <summary>
     /// 0x00 - Warmup.
     /// 0x01 - Initializing.
@@ -104,7 +117,15 @@ public struct ThreadPoolAdjustmentStatistics : IEquatable<ThreadPoolAdjustmentSt
     /// 0x03 isnt usable data, as it were just thread adjustment with hill climing heulistics.
     /// only tracking 0x06 stavation is enough.
     /// </remarks>
-    public uint Reason { get; set; }
+    public readonly uint Reason;
+
+    public ThreadPoolAdjustmentStatistics(long time, double averageThrouput, uint newWorkerThreads, uint reason)
+    {
+        Time = time;
+        AverageThrouput = averageThrouput;
+        NewWorkerThreads = newWorkerThreads;
+        Reason = reason;
+    }
 
     public string GetReasonString()
     {

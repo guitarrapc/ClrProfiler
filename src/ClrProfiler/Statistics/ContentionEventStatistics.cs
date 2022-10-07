@@ -2,15 +2,22 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace ClrProfiler.Statistics;
 
-public struct ContentionEventStatistics : IEquatable<ContentionEventStatistics>
+public readonly struct ContentionEventStatistics : IEquatable<ContentionEventStatistics>
 {
-    public long Time { get; set; }
+    public readonly long Time;
     /// <summary>
     /// 0 : managed.
     /// 1 : native
     /// </summary>
-    public byte Flag { get; set; }
-    public double DurationNs { get; set; }
+    public readonly byte Flag;
+    public readonly double DurationNs;
+
+    public ContentionEventStatistics(long time, byte flag, double durationNs)
+    {
+        Time = time;
+        Flag = flag;
+        DurationNs = durationNs;
+    }
 
     public override bool Equals(object? obj)
     {

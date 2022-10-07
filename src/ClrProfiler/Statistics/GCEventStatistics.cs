@@ -11,11 +11,18 @@ public enum GCEventType
 /// <summary>
 /// Data structure represent GC statistics
 /// </summary>
-public struct GCEventStatistics : IEquatable<GCEventStatistics>
+public readonly struct GCEventStatistics : IEquatable<GCEventStatistics>
 {
-    public GCEventType Type { get; set; }
-    public GCStartEndStatistics GCStartEndStatistics { get; set; }
-    public GCSuspendStatistics GCSuspendStatistics { get; set; }
+    public readonly GCEventType Type;
+    public readonly GCStartEndStatistics GCStartEndStatistics;
+    public readonly GCSuspendStatistics GCSuspendStatistics;
+
+    public GCEventStatistics(GCEventType type, GCStartEndStatistics gCStartEndStatistics, GCSuspendStatistics gCSuspendStatistics)
+    {
+        Type = type;
+        GCStartEndStatistics = gCStartEndStatistics;
+        GCSuspendStatistics = gCSuspendStatistics;
+    }
 
     public override bool Equals(object? obj)
     {
@@ -46,19 +53,19 @@ public struct GCEventStatistics : IEquatable<GCEventStatistics>
     }
 }
 
-public struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
+public readonly struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
 {
-    public uint Index { get; set; }
+    public readonly uint Index;
     /// <summary>
     /// 0x0 - Blocking garbage collection occurred outside background garbage collection.
     /// 0x1 - Background garbage collection.
     /// 0x2 - Blocking garbage collection occurred during background garbage collection.
     /// </summary>
-    public uint Type { get; set; }
+    public readonly uint Type;
     /// <summary>
     /// Gen0-2
     /// </summary>
-    public uint Generation { get; set; }
+    public readonly uint Generation;
     /// <summary>
     /// 0x0 - Small object heap allocation.
     /// 0x1 - Induced.
@@ -69,10 +76,21 @@ public struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
     /// 0x6 - Out of space(for large object heap).
     /// 0x7 - Induced but not forced as blocking.
     /// </summary>
-    public uint Reason { get; set; }
-    public double DurationMillsec { get; set; }
-    public long GCStartTime { get; set; }
-    public long GCEndTime { get; set; }
+    public readonly uint Reason;
+    public readonly double DurationMillsec;
+    public readonly long GCStartTime;
+    public readonly long GCEndTime;
+
+    public GCStartEndStatistics(uint index, uint type, uint generation, uint reason, double durationMillsec, long gCStartTime, long gCEndTime)
+    {
+        Index = index;
+        Type = type;
+        Generation = generation;
+        Reason = reason;
+        DurationMillsec = durationMillsec;
+        GCStartTime = gCStartTime;
+        GCEndTime = gCEndTime;
+    }
 
     public string GetReasonString()
     {
@@ -123,9 +141,9 @@ public struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
     }
 }
 
-public struct GCSuspendStatistics : IEquatable<GCSuspendStatistics>
+public readonly struct GCSuspendStatistics : IEquatable<GCSuspendStatistics>
 {
-    public double DurationMillisec { get; set; }
+    public readonly double DurationMillisec;
     /// <summary>
     /// 0x0 - Other.
     /// 0x1 - Garbage collection.
@@ -135,8 +153,15 @@ public struct GCSuspendStatistics : IEquatable<GCSuspendStatistics>
     /// 0x5 - Debugger.
     /// 0x6 - Preparation for garbage collection.
     /// </summary>
-    public uint Reason { get; set; }
-    public uint Count { get; set; }
+    public readonly uint Reason;
+    public readonly uint Count;
+
+    public GCSuspendStatistics(double durationMillisec, uint reason, uint count)
+    {
+        DurationMillisec = durationMillisec;
+        Reason = reason;
+        Count = count;
+    }
 
     public string GetReasonString()
     {

@@ -2,17 +2,30 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace ClrProfiler.Statistics;
 
-public struct ThreadInfoStatistics : IEquatable<ThreadInfoStatistics>
+public readonly struct ThreadInfoStatistics : IEquatable<ThreadInfoStatistics>
 {
-    public DateTime Date { get; set; }
-    public int AvailableWorkerThreads { get; set; }
-    public int AvailableCompletionPortThreads { get; set; }
-    public int MaxWorkerThreads { get; set; }
-    public int MaxCompletionPortThreads { get; set; }
-    public int ThreadCount { get; set; }
-    public long QueueLength { get; set; }
-    public long CompletedItemsCount { get; set; }
-    public long LockContentionCount { get; set; }
+    public readonly DateTime Date;
+    public readonly int AvailableWorkerThreads;
+    public readonly int AvailableCompletionPortThreads;
+    public readonly int MaxWorkerThreads;
+    public readonly int MaxCompletionPortThreads;
+    public readonly int ThreadCount;
+    public readonly long QueueLength;
+    public readonly long CompletedItemsCount;
+    public readonly long LockContentionCount;
+
+    public ThreadInfoStatistics(DateTime date, int availableWorkerThreads, int availableCompletionPortThreads, int maxWorkerThreads, int maxCompletionPortThreads, int threadCount, long queueLength, long completedItemsCount, long lockContentionCount)
+    {
+        Date = date;
+        AvailableWorkerThreads = availableWorkerThreads;
+        AvailableCompletionPortThreads = availableCompletionPortThreads;
+        MaxWorkerThreads = maxWorkerThreads;
+        MaxCompletionPortThreads = maxCompletionPortThreads;
+        ThreadCount = threadCount;
+        QueueLength = queueLength;
+        CompletedItemsCount = completedItemsCount;
+        LockContentionCount = lockContentionCount;
+    }
 
     public override bool Equals(object? obj)
     {

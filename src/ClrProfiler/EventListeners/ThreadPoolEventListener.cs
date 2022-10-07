@@ -45,37 +45,21 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
                 var averageThroughput = double.Parse(eventData.Payload?[0]?.ToString() ?? "0");
                 var newWorkerThreadCount = uint.Parse(eventData.Payload?[1]?.ToString() ?? "0");
                 var reason = uint.Parse(r);
+                var stat = new ThreadPoolEventStatistics(ThreadPoolStatisticType.ThreadPoolAdjustment, new(), new ThreadPoolAdjustmentStatistics(time, averageThroughput, newWorkerThreadCount, reason));
 
                 // write to channel
-                _channel.Writer.TryWrite(new ThreadPoolEventStatistics
-                {
-                    Type = ThreadPoolStatisticType.ThreadPoolAdjustment,
-                    ThreadPoolAdjustment = new ThreadPoolAdjustmentStatistics
-                    {
-                        Time = time,
-                        NewWorkerThreads = newWorkerThreadCount,
-                        AverageThrouput = averageThroughput,
-                        Reason = reason,
-                    },
-                });
+                _channel.Writer.TryWrite(stat);
             }
             else if (eventData.EventName?.StartsWith("ThreadPoolWorkerThreadStop", StringComparison.OrdinalIgnoreCase) ?? false)
             {
                 long time = eventData.TimeStamp.Ticks;
-                var activeWrokerThreadCount = uint.Parse(eventData.Payload?[0]?.ToString() ?? "0");
+                var activeWorkerThreadCount = uint.Parse(eventData.Payload?[0]?.ToString() ?? "0");
                 // always 0
                 // var retiredWrokerThreadCount = uint.Parse(eventData.Payload[1].ToString());
+                var stat = new ThreadPoolEventStatistics(ThreadPoolStatisticType.ThreadPoolWorkerStartStop, new ThreadPoolWorkerStatistics(time, activeWorkerThreadCount), new());
 
                 // write to channel
-                _channel.Writer.TryWrite(new ThreadPoolEventStatistics
-                {
-                    Type = ThreadPoolStatisticType.ThreadPoolWorkerStartStop,
-                    ThreadPoolWorker = new ThreadPoolWorkerStatistics
-                    {
-                        Time = time,
-                        ActiveWrokerThreads = activeWrokerThreadCount,
-                    },
-                });
+                _channel.Writer.TryWrite(stat);
             }
         }
         catch (Exception ex)

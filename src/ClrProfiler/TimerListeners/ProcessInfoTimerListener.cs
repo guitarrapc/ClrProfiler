@@ -106,14 +106,9 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
 
             var workingSet = _process.WorkingSet64;
             var privateBytes = _process.PrivateMemorySize64;
+            var stat = new ProcessInfoStatistics(date, _cpu, workingSet, privateBytes);
 
-            _channel.Writer.TryWrite(new ProcessInfoStatistics
-            {
-                Date = date,
-                Cpu = _cpu,
-                PrivateBytes = privateBytes,
-                WorkingSet = workingSet,
-            });
+            _channel.Writer.TryWrite(stat);
         }
         catch (Exception ex)
         {
