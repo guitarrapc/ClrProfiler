@@ -6,9 +6,15 @@ namespace ClrProfiler.DatadogTracing;
 public class ClrTracker
 {
     private static int singleAccess = 0;
-    private readonly ILogger _logger;
+    private readonly ILogger<ClrTracker> _logger;
 
-    public ClrTracker(ILogger logger)
+    public ClrTracker(ILoggerFactory loggerFactory)
+    {
+        _logger = loggerFactory.CreateLogger<ClrTracker>();
+        EnableTracker();
+    }
+
+    public ClrTracker(ILogger<ClrTracker> logger)
     {
         _logger = logger;
         EnableTracker();

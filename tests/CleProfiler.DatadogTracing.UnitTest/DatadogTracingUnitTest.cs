@@ -22,7 +22,10 @@ public class DatadogTracingUnitTest
         {
             OnRecieveMessage = (_, text) =>
             {
-                list.Add(text);
+                if (!text.StartsWith("datadog.dogstatsd"))
+                {
+                    list.Add(text);
+                }
             }
         };
         var serverTask = Task.Run(async () => await server.ListenAsync(cts.Token), cts.Token);
@@ -37,7 +40,7 @@ public class DatadogTracingUnitTest
         DogStatsd.Configure(dogstatsdConfig);
 
         // enable clr tracker
-        var tracker = new ClrTracker(logger);
+        var tracker = new ClrTracker(TestHelpers.CreateLogger<ClrTracker>());
         tracker.StartTracker();
 
         // Allocate and GC

@@ -35,7 +35,7 @@ var dogstatsdConfig = new StatsdConfig
 DogStatsd.Configure(dogstatsdConfig);
 
 // enable clr tracker
-var tracker = new ClrTracker(logger);
+var tracker = new ClrTracker(loggerFactory);
 tracker.StartTracker();
 
 // Allocate and GC

@@ -85,7 +85,11 @@ public static class DatadogTracing
     /// - clr_diagnostics_timer.process.private_bytes // gauge
     /// - clr_diagnostics_timer.process.working_sets // gauge
     /// - clr_diagnostics_timer.thread.available_worker_threads // gauge
+    /// - clr_diagnostics_timer.thread.available_completion_port_threads // gauge
     /// - clr_diagnostics_timer.thread.max_worker_threads // gauge
+    /// - clr_diagnostics_timer.thread.max_completion_port_threads // gauge
+    /// - clr_diagnostics_timer.thread.using_worker_threads // gauge
+    /// - clr_diagnostics_timer.thread.using_completion_port_threads // gauge
     /// - clr_diagnostics_timer.thread.thread_count // gauge
     /// - clr_diagnostics_timer.thread.queue_length // gauge
     /// - clr_diagnostics_timer.thread.lock_contention_count // gauge
