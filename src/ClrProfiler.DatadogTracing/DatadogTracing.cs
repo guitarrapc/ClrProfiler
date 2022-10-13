@@ -134,7 +134,7 @@ public static class DatadogTracing
     public static void ThreadInfoTimerGauge(in ThreadInfoStatistics statistics)
     {
         DogStatsd.Gauge("clr_diagnostics_timer.thread.available_worker_threads", statistics.AvailableWorkerThreads);
-        DogStatsd.Gauge("clr_diagnostics_timer.thread.available_completion_port_threads", statistics.AvailableWorkerThreads);
+        DogStatsd.Gauge("clr_diagnostics_timer.thread.available_completion_port_threads", statistics.AvailableCompletionPortThreads);
         DogStatsd.Gauge("clr_diagnostics_timer.thread.max_worker_threads", statistics.MaxWorkerThreads);
         DogStatsd.Gauge("clr_diagnostics_timer.thread.max_completion_port_threads", statistics.MaxCompletionPortThreads);
         DogStatsd.Gauge("clr_diagnostics_timer.thread.using_worker_threads", statistics.UsingWorkerThreads);
