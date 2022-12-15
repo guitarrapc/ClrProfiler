@@ -104,6 +104,8 @@ public readonly struct ThreadPoolAdjustmentStatistics : IEquatable<ThreadPoolAdj
     public readonly double AverageThrouput;
     public readonly uint NewWorkerThreads;
     /// <summary>
+    /// see - https://learn.microsoft.com/en-us/dotnet/framework/performance/thread-pool-etw-events#threadpoolworkerthreadadjustmentadjustment
+    /// 
     /// 0x00 - Warmup.
     /// 0x01 - Initializing.
     /// 0x02 - Random move.
@@ -139,7 +141,7 @@ public readonly struct ThreadPoolAdjustmentStatistics : IEquatable<ThreadPoolAdj
             5 => "stabilizing",
             6 => "starvation",
             7 => "timedout",
-            _ => throw new NotSupportedException("reason not defined."),
+            _ => throw new ArgumentOutOfRangeException($"reason not defined. passed reason is {Reason}"),
         };
     }
 

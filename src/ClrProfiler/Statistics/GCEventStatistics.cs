@@ -67,6 +67,8 @@ public readonly struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
     /// </summary>
     public readonly uint Generation;
     /// <summary>
+    /// see - https://learn.microsoft.com/en-us/dotnet/framework/performance/garbage-collection-etw-events#gcstart_v1-event
+    /// 
     /// 0x0 - Small object heap allocation.
     /// 0x1 - Induced.
     /// 0x2 - Low memory.
@@ -75,6 +77,9 @@ public readonly struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
     /// 0x5 - Out of space (for small object heap).
     /// 0x6 - Out of space(for large object heap).
     /// 0x7 - Induced but not forced as blocking.
+    /// 0x8 - Stress testing.
+    /// 0x9 - The finalizer thread observed the process is in low memory and induced a GC.
+    /// 0x10 - User code induced GC and requested it to be a compacting GC.
     /// </summary>
     public readonly uint Reason;
     public readonly double DurationMillsec;
@@ -104,7 +109,10 @@ public readonly struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
             5 => "oos_soh",
             6 => "oos_loh",
             7 => "incuded_non_forceblock",
-            _ => throw new ArgumentOutOfRangeException("reason not defined."),
+            8 => "stress_testing",
+            9 => "finalizer_low_memory_induced",
+            10 => "user_gc_request",
+            _ => throw new ArgumentOutOfRangeException($"reason not defined. passed reason is {Reason}"),
         };
     }
 
@@ -145,6 +153,8 @@ public readonly struct GCSuspendStatistics : IEquatable<GCSuspendStatistics>
 {
     public readonly double DurationMillisec;
     /// <summary>
+    /// see - https://learn.microsoft.com/en-us/dotnet/framework/performance/garbage-collection-etw-events#gcsuspendee_v1-event
+    /// 
     /// 0x0 - Other.
     /// 0x1 - Garbage collection.
     /// 0x2 - Application domain shutdown.
@@ -174,7 +184,7 @@ public readonly struct GCSuspendStatistics : IEquatable<GCSuspendStatistics>
             4 => "shutdown",
             5 => "debugger",
             6 => "prep_gc",
-            _ => throw new ArgumentOutOfRangeException("reason not defined."),
+            _ => throw new ArgumentOutOfRangeException($"reason not defined. passed reason is {Reason}"),
         };
     }
 

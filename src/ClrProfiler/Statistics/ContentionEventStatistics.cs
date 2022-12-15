@@ -6,6 +6,8 @@ public readonly struct ContentionEventStatistics : IEquatable<ContentionEventSta
 {
     public readonly long Time;
     /// <summary>
+    /// see - https://learn.microsoft.com/en-us/dotnet/framework/performance/contention-etw-events
+    /// 
     /// 0 : managed.
     /// 1 : native
     /// </summary>
