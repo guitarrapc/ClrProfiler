@@ -20,11 +20,11 @@ jobs:
       # build
       - run: dotnet build -c ${{ env.BUILD_CONFIG }} -p:Version=${{ env.GIT_TAG }}
       # pack
-      - run: dotnet pack -c ${{ env.BUILD_CONFIG }} -p:Version=${{ env.GIT_TAG }} -o ./.nuget/
+      - run: dotnet pack -c ${{ env.BUILD_CONFIG }} -p:Version=${{ env.GIT_TAG }} -o ./publish/
       - uses: actions/upload-artifact@v4
         with:
           name: nuget
-          path: ./.nuget/
+          path: ./publish/
           retention-days: 1
           if-no-files-found: error
 
