@@ -1,19 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-
   <ItemGroup>
-    <PackageReference Include="DogStatsD-CSharp-Client" Version="7.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.2" />
-    <PackageReference Include="ZString" Version="2.4.4" />
+    <PackageReference Include="DogStatsD-CSharp-Client" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="ZString" />
   </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\ClrProfiler\ClrProfiler.csproj" />
   </ItemGroup>
-
 </Project>
