@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <!-- NuGet -->
+    <PackageVersion>$(Version)</PackageVersion>
+    <Authors>guitarrapc</Authors>
+    <Company />
+    <Copyright>guitarrapc</Copyright>
+    <Description>.NET CLR Profiler to monitor Thread, GC statistics</Description>
+    <PackageProjectUrl>https://github.com/guitarrapc/ClrProfiler</PackageProjectUrl>
+    <RepositoryUrl>$(PackageProjectUrl)</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>Profiler, Profiling, Perfomance</PackageTags>
+    <NeutralLanguage>en</NeutralLanguage>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+</Project>
