@@ -1,15 +1,19 @@
 # ClrProfiler
 
-Library to gather .NET CLR Profiler for ContentionEvent, GC, Process, Thread and ThreadPool via EventListener.
+Zero dependency library to gather .NET CLR Profiler for ContentionEvent, GC, Process, Thread and ThreadPool via EventListener.
 Offering following Cloud tracing packages.
 
 * [x] Datadog
 
-## Basic Usage
+## Quick Start
 
-Include `ClrProfiler.DatadogTracing` to your csproj and run following.
+Add `ClrProfiler.DatadogTracing` to your csproj and run following.
 
-By default, ClrProfiler will start with `Datadog` tracer.
+```sh
+dotnet add package ClrProfiler.DatadogTracing
+```
+
+Start Dogstatsd and ClrTracker.
 
 ```cs
 // Run Client (datadog agent with udp)
@@ -27,7 +31,11 @@ tracker.EnableTracker(); // EnableTracker will start EventListener
 tracker.StartTracker();
 ```
 
-If you want to debug by logger, use ClrTrackerType.Logger.
+Now you are ready to use ClrTracker on your application. Metrics will be sent to Datadog by dogstatsd.
+
+## Debugging
+
+If you want to debug behaviour, use ClrTrackerType.Logger instead. This will log metrics to ILogger.Debug.
 
 ```cs
 // enable clr tracker
@@ -41,9 +49,7 @@ tracker.StartTracker();
 
 ## Sandbox
 
-Run SandboxConsoleApp, then metrics ingested will show on Console.
-
-Sandbox will run both Server and Client. Server is listen on `127.0.0.1:8125` and accept udp from local datadog agent.
+Run SandboxConsoleApp, then metrics ingested will shown on Console. Sandbox runs both Server and Client. Server is listen UDP Server on `127.0.0.1:8125` and accept request from local datadog agent.
 You will see following messages.
 
 ```
