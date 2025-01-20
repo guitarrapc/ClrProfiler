@@ -35,36 +35,39 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
         _channel = Channel.CreateBounded<GCEventStatistics>(channelOption);
     }
 
-    /// GC Flow
-    ///Foreground (Blocking) GC flow (all Gen 0/1 GCs and full blocking GCs)
-    ///* GCSuspendEE_V1
-    ///* GCSuspendEEEnd_V1 <– suspension is done
-    ///* GCStart_V1
-    ///* GCEnd_V1 <– actual GC is done
-    ///* GCRestartEEBegin_V1
-    ///* GCRestartEEEnd_V1 <– resumption is done.
-    ///
-    ///Background GC flow (Gen 2)
-    ///* GCSuspendEE_V1
-    ///* GCSuspendEEEnd_V1
-    ///* GCStart_V1 <– Background GC starts
-    ///* GCRestartEEBegin_V1
-    ///* GCRestartEEEnd_V1 <– done with the initial suspension
-    ///* GCSuspendEE_V1
-    ///* GCSuspendEEEnd_V1
-    ///* GCRestartEEBegin_V1
-    ///* GCRestartEEEnd_V1 <– done with Background GC’s own suspension
-    ///* GCSuspendEE_V1
-    ///* GCSuspendEEEnd_V1 <– suspension for Foreground GC is done
-    ///* GCStart_V1
-    ///* GCEnd_V1 <– Foreground GC is done
-    ///* GCRestartEEBegin_V1
-    ///* GCRestartEEEnd_V1 <– resumption for Foreground GC is done
-    ///* GCEnd_V1 <– Background GC ends
-    ///<remarks>
-    /// ref: https://docs.microsoft.com/en-us/dotnet/standard/garbage-collection/fundamentals?redirectedfrom=MSDN#background_garbage_collection
-    /// ref: https://mattwarren.org/2016/06/20/Visualising-the-dotNET-Garbage-Collector/
-    ///</remarks>
+    // GC Flow
+    // Foreground (Blocking) GC flow (all Gen 0/1 GCs and full blocking GCs)
+    // * GCSuspendEE_V1
+    // * GCSuspendEEEnd_V1 <– suspension is done
+    // * GCStart_V1
+    // * GCEnd_V1 <– actual GC is done
+    // * GCRestartEEBegin_V1
+    // * GCRestartEEEnd_V1 <– resumption is done.
+    // 
+    // Background GC flow (Gen 2)
+    // * GCSuspendEE_V1
+    // * GCSuspendEEEnd_V1
+    // * GCStart_V1 <– Background GC starts
+    // * GCRestartEEBegin_V1
+    // * GCRestartEEEnd_V1 <– done with the initial suspension
+    // * GCSuspendEE_V1
+    // * GCSuspendEEEnd_V1
+    // * GCRestartEEBegin_V1
+    // * GCRestartEEEnd_V1 <– done with Background GC’s own suspension
+    // * GCSuspendEE_V1
+    // * GCSuspendEEEnd_V1 <– suspension for Foreground GC is done
+    // * GCStart_V1
+    // * GCEnd_V1 <– Foreground GC is done
+    // * GCRestartEEBegin_V1
+    // * GCRestartEEEnd_V1 <– resumption for Foreground GC is done
+    // * GCEnd_V1 <– Background GC ends
+    /// <summary>
+    /// GC Event Handler
+    /// </summary>
+    /// <see>
+    /// https://docs.microsoft.com/en-us/dotnet/standard/garbage-collection/fundamentals?redirectedfrom=MSDN#background_garbage_collection
+    /// https://mattwarren.org/2016/06/20/Visualising-the-dotNET-Garbage-Collector/
+    /// </see>
     public override void EventCreatedHandler(EventWrittenEventArgs eventData)
     {
         try

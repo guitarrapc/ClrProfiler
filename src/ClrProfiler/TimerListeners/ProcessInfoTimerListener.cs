@@ -27,6 +27,8 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
     /// <summary>
     /// Constructor
     /// </summary>
+    /// <param name="onEventEmit">Trigger when Event emitted</param>
+    /// <param name="onEventError">Trigger when Event has error</param>
     /// <param name="dueTime">The amount of time delay before timer starts.</param>
     /// <param name="intervalPeriod">The time inteval between the invocation of timer.</param>
     public ProcessInfoTimerListener(Func<ProcessInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, TimeSpan dueTime, TimeSpan intervalPeriod)

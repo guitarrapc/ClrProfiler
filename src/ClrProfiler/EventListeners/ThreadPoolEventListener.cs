@@ -5,7 +5,7 @@ using System.Threading.Channels;
 namespace ClrProfiler.EventListeners;
 
 /// <summary>
-/// EventListener to collect Thread events. <see cref="ThreadStatistics"/>.
+/// EventListener to collect Thread events. <see cref="ThreadInfoStatistics"/>.
 /// </summary>
 /// <remarks>payload: https://docs.microsoft.com/en-us/dotnet/framework/performance/thread-pool-etw-events </remarks>
 public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
