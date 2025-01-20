@@ -1,13 +1,19 @@
 # ClrProfiler
 
-Zero dependency library to gather .NET CLR Profiler for ContentionEvent, GC, Process, Thread and ThreadPool via EventListener.
-Offering following Cloud tracing packages.
+**ClrProfiler** is a zero-dependency .NET library designed to monitor and collect detailed metrics on Contention Events, Garbage Collection (GC), Processes, Threads, and ThreadPool activities through EventListener. This tool is essential for developers aiming to gain in-depth insights into the performance and behavior of their .NET applications.
 
-* [x] Datadog
+## Key Features
 
-## Quick Start
+- **Comprehensive Monitoring**
+  ClrProfiler captures a wide range of CLR events, providing a holistic view of your application's runtime performance.
+- **Cloud Tracing Integration**
+  Seamlessly integrates with cloud tracing services, with built-in support for Datadog, enabling real-time monitoring and analytics.
+- **Ease of Use**
+  Designed for simplicity, ClrProfiler allows for straightforward integration into your projects, facilitating immediate performance tracking without the need for complex configurations.
 
-Add `ClrProfiler.DatadogTracing` to your csproj and run following.
+## Getting Started
+
+To utilize ClrProfiler with Datadog tracing, include the `ClrProfiler.DatadogTracing` package in your project. Initialize the Datadog client and enable the CLR tracker as demonstrated below:
 
 ```sh
 dotnet add package ClrProfiler.DatadogTracing
@@ -21,13 +27,13 @@ var dogstatsdConfig = new StatsdConfig
 {
     StatsdServerName = host,
     StatsdPort = port,
-    ConstantTags = [$"app:SandboxConsoleApp"],
+    ConstantTags = ["app:YourAppName"],
 };
 DogStatsd.Configure(dogstatsdConfig);
 
 // enable clr tracker
 var tracker = new ClrTracker(loggerFactory);
-tracker.EnableTracker(); // EnableTracker will start EventListener
+tracker.EnableTracker(); // required, enable clr tracker explicitly
 tracker.StartTracker();
 ```
 
