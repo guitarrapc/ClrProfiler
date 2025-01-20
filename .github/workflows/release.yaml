@@ -34,8 +34,7 @@ jobs:
       - run: echo "GIT_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
       # release
       - name: Create Release
-        run: gh release create ${{ inputs.tag }} --draft --verify-tag --title "Ver.${{ inputs.tag }}" --generate-notes
-        if: ${{ !inputs.dry-run }}
+        run: gh release create ${{ env.GIT_TAG }} --draft --verify-tag --title "Ver.${{ env.GIT_TAG }}" --generate-notes
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
