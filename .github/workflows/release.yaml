@@ -32,16 +32,14 @@ jobs:
     steps:
       - uses: guitarrapc/actions/.github/actions/setup-dotnet@main
       - run: echo "GIT_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
-      # Create Release
-      - uses: actions/create-release@v1
-        id: create_release
+      # release
+      - name: Create Release
+        run: gh release create ${{ inputs.tag }} --draft --verify-tag --title "Ver.${{ inputs.tag }}" --generate-notes
+        if: ${{ !inputs.dry-run }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: ${{ github.ref }}
-          draft: true
-          prerelease: false
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # nuget
       - uses: actions/download-artifact@v4
         with:
           name: nuget
