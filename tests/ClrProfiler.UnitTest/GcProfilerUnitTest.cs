@@ -6,7 +6,7 @@ namespace ClrProfiler.UnitTest;
 [Collection(nameof(TestCollectionDefinition))]
 public class GcProfilerUnitTest
 {
-    [Fact]
+    [Fact, TestPriority(0)]
     public void GCInfoTimerProfilerTest()
     {
         var before = GC.GetTotalAllocatedBytes(true);
