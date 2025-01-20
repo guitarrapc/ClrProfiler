@@ -1,5 +1,4 @@
 using System.Runtime;
-using Xunit.Sdk;
 
 namespace ClrProfiler.UnitTest;
 
@@ -53,3 +52,4 @@ public static class TestHelpers
         GC.AddMemoryPressure(1024000); // 1MB
     }
 }
+

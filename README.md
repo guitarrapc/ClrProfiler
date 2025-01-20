@@ -3,15 +3,39 @@
 Library to gather .NET CLR Profiler for ContentionEvent, GC, Process, Thread and ThreadPool via EventListener.
 Offering following Cloud tracing packages.
 
-* Datadog
+* [x] Datadog
 
-## Usage
+## Basic Usage
 
 Include `ClrProfiler.DatadogTracing` to your csproj and run following.
-See detail sample on [Sandbox](/src/SandboxConsoleApp/Program.cs).
+
+By default, ClrProfiler will start with `Datadog` tracer.
 
 ```cs
-var tracker = new ClrTracker("localhost", logger);
+// Run Client (datadog agent with udp)
+var dogstatsdConfig = new StatsdConfig
+{
+    StatsdServerName = host,
+    StatsdPort = port,
+    ConstantTags = [$"app:SandboxConsoleApp"],
+};
+DogStatsd.Configure(dogstatsdConfig);
+
+// enable clr tracker
+var tracker = new ClrTracker(loggerFactory);
+tracker.EnableTracker(); // EnableTracker will start EventListener
+tracker.StartTracker();
+```
+
+If you want to debug by logger, use ClrTrackerType.Logger.
+
+```cs
+// enable clr tracker
+var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
+{
+    TrackerType = ClrTrackerType.Logger
+});
+tracker.EnableTracker();
 tracker.StartTracker();
 ```
 
@@ -19,8 +43,8 @@ tracker.StartTracker();
 
 Run SandboxConsoleApp, then metrics ingested will show on Console.
 
-Sandbox will run both Server and Client (ClrProfiler).
-Server is mocking datadog agent, and is listen on `127.0.0.1:8125`.
+Sandbox will run both Server and Client. Server is listen on `127.0.0.1:8125` and accept udp from local datadog agent.
+You will see following messages.
 
 ```
 clr_diagnostics_event.gc.startend_count:17|c|#app:SandboxConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced

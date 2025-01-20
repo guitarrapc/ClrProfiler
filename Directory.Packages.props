@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <NoWarn>$(NoWarn);NU1507</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="DogStatsD-CSharp-Client" Version="8.0.0" />
+    <PackageVersion Include="FluentAssertions" Version="7.1.0" />
+    <PackageVersion Include="GitHubActionsTestLogger" Version="2.4.1" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.1" />
+    <PackageVersion Include="ZLogger" Version="2.5.10" />
+    <PackageVersion Include="ZString" Version="2.6.0" />
+  </ItemGroup>
+</Project>

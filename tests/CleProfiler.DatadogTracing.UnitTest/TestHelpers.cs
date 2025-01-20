@@ -1,19 +1,24 @@
-using System.Net.Sockets;
-using System.Net;
-using System.Text;
 using Microsoft.Extensions.Logging;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 
 namespace CleProfiler.DatadogTracing.UnitTest;
 
 public static class TestHelpers
 {
-    public static ILogger<T> CreateLogger<T>()
+    public static ILoggerFactory CreateLoggerFactory()
     {
-        using var loggerFactory = LoggerFactory.Create(builder =>
+        var loggerFactory = LoggerFactory.Create(builder =>
         {
             builder.ClearProviders();
             builder.SetMinimumLevel(LogLevel.Debug);
         });
+        return loggerFactory;
+    }
+    public static ILogger<T> CreateLogger<T>()
+    {
+        using var loggerFactory = CreateLoggerFactory();
         var logger = loggerFactory.CreateLogger<T>();
         return logger;
     }

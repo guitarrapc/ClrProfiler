@@ -2,24 +2,16 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace ClrProfiler.Statistics;
 
-public readonly struct ContentionEventStatistics : IEquatable<ContentionEventStatistics>
+public readonly struct ContentionEventStatistics(long time, byte flag, double durationNs) : IEquatable<ContentionEventStatistics>
 {
-    public readonly long Time;
+    public readonly long Time = time;
     /// <summary>
     /// see - https://learn.microsoft.com/en-us/dotnet/framework/performance/contention-etw-events
-    /// 
     /// 0 : managed.
     /// 1 : native
     /// </summary>
-    public readonly byte Flag;
-    public readonly double DurationNs;
-
-    public ContentionEventStatistics(long time, byte flag, double durationNs)
-    {
-        Time = time;
-        Flag = flag;
-        DurationNs = durationNs;
-    }
+    public readonly byte Flag = flag;
+    public readonly double DurationNs = durationNs;
 
     public override bool Equals(object? obj)
     {

@@ -11,18 +11,11 @@ public enum GCEventType
 /// <summary>
 /// Data structure represent GC statistics
 /// </summary>
-public readonly struct GCEventStatistics : IEquatable<GCEventStatistics>
+public readonly struct GCEventStatistics(GCEventType type, GCStartEndStatistics gCStartEndStatistics, GCSuspendStatistics gCSuspendStatistics) : IEquatable<GCEventStatistics>
 {
-    public readonly GCEventType Type;
-    public readonly GCStartEndStatistics GCStartEndStatistics;
-    public readonly GCSuspendStatistics GCSuspendStatistics;
-
-    public GCEventStatistics(GCEventType type, GCStartEndStatistics gCStartEndStatistics, GCSuspendStatistics gCSuspendStatistics)
-    {
-        Type = type;
-        GCStartEndStatistics = gCStartEndStatistics;
-        GCSuspendStatistics = gCSuspendStatistics;
-    }
+    public readonly GCEventType Type = type;
+    public readonly GCStartEndStatistics GCStartEndStatistics = gCStartEndStatistics;
+    public readonly GCSuspendStatistics GCSuspendStatistics = gCSuspendStatistics;
 
     public override bool Equals(object? obj)
     {
@@ -53,19 +46,19 @@ public readonly struct GCEventStatistics : IEquatable<GCEventStatistics>
     }
 }
 
-public readonly struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
+public readonly struct GCStartEndStatistics(uint index, uint type, uint generation, uint reason, double durationMillsec, long gCStartTime, long gCEndTime) : IEquatable<GCStartEndStatistics>
 {
-    public readonly uint Index;
+    public readonly uint Index = index;
     /// <summary>
     /// 0x0 - Blocking garbage collection occurred outside background garbage collection.
     /// 0x1 - Background garbage collection.
     /// 0x2 - Blocking garbage collection occurred during background garbage collection.
     /// </summary>
-    public readonly uint Type;
+    public readonly uint Type = type;
     /// <summary>
     /// Gen0-2
     /// </summary>
-    public readonly uint Generation;
+    public readonly uint Generation = generation;
     /// <summary>
     /// see - https://learn.microsoft.com/en-us/dotnet/framework/performance/garbage-collection-etw-events#gcstart_v1-event
     /// 
@@ -81,24 +74,14 @@ public readonly struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
     /// 0x9 - The finalizer thread observed the process is in low memory and induced a GC.
     /// 0x10 - User code induced GC and requested it to be a compacting GC.
     /// </summary>
-    public readonly uint Reason;
-    public readonly double DurationMillsec;
-    public readonly long GCStartTime;
-    public readonly long GCEndTime;
-
-    public GCStartEndStatistics(uint index, uint type, uint generation, uint reason, double durationMillsec, long gCStartTime, long gCEndTime)
-    {
-        Index = index;
-        Type = type;
-        Generation = generation;
-        Reason = reason;
-        DurationMillsec = durationMillsec;
-        GCStartTime = gCStartTime;
-        GCEndTime = gCEndTime;
-    }
+    public readonly uint Reason = reason;
+    public readonly double DurationMillsec = durationMillsec;
+    public readonly long GCStartTime = gCStartTime;
+    public readonly long GCEndTime = gCEndTime;
 
     public string GetReasonString()
     {
+        // https://learn.microsoft.com/en-us/dotnet/framework/performance/garbage-collection-etw-events#gcstart_v1-event
         return Reason switch
         {
             0 => "soh",
@@ -112,7 +95,7 @@ public readonly struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
             8 => "stress_testing",
             9 => "finalizer_low_memory_induced",
             10 => "user_gc_request",
-            _ => throw new ArgumentOutOfRangeException($"reason not defined. passed reason is {Reason}"),
+            _ => throw new ArgumentOutOfRangeException($"reason not defined. reason: {Reason}"),
         };
     }
 
@@ -149,9 +132,9 @@ public readonly struct GCStartEndStatistics : IEquatable<GCStartEndStatistics>
     }
 }
 
-public readonly struct GCSuspendStatistics : IEquatable<GCSuspendStatistics>
+public readonly struct GCSuspendStatistics(double durationMillisec, uint reason, uint count) : IEquatable<GCSuspendStatistics>
 {
-    public readonly double DurationMillisec;
+    public readonly double DurationMillisec = durationMillisec;
     /// <summary>
     /// see - https://learn.microsoft.com/en-us/dotnet/framework/performance/garbage-collection-etw-events#gcsuspendee_v1-event
     /// 
@@ -163,18 +146,12 @@ public readonly struct GCSuspendStatistics : IEquatable<GCSuspendStatistics>
     /// 0x5 - Debugger.
     /// 0x6 - Preparation for garbage collection.
     /// </summary>
-    public readonly uint Reason;
-    public readonly uint Count;
-
-    public GCSuspendStatistics(double durationMillisec, uint reason, uint count)
-    {
-        DurationMillisec = durationMillisec;
-        Reason = reason;
-        Count = count;
-    }
+    public readonly uint Reason = reason;
+    public readonly uint Count = count;
 
     public string GetReasonString()
     {
+        // https://learn.microsoft.com/en-us/dotnet/framework/performance/garbage-collection-etw-events#gcsuspendee_v1-event
         return Reason switch
         {
             0 => "other",

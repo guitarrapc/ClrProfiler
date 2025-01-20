@@ -25,18 +25,11 @@ var server = new UdpServer(host, port)
 };
 var serverTask = Task.Run(async () => await server.ListenAsync(cts.Token), cts.Token);
 
-// Run Client (datadog agent with udp)
-var dogstatsdConfig = new StatsdConfig
-{
-    StatsdServerName = host,
-    StatsdPort = port,
-    ConstantTags = new[] { $"app:SandboxConsoleApp" },
-};
-DogStatsd.Configure(dogstatsdConfig);
+// Use Datadog
+var tracker = UseDatadogTracker(loggerFactory, host, port);
 
-// enable clr tracker
-var tracker = new ClrTracker(loggerFactory);
-tracker.StartTracker();
+// Use Logger Instead
+//var tracker = UseLoggerTracker(loggerFactory);
 
 // Allocate and GC
 logger.LogInformation("Press Ctrl+C to cancel execution.");
@@ -54,6 +47,36 @@ while (!ConsoleHelper.IsCancelPressed)
 tracker.StopTracker();
 tracker.CancelTracker();
 cts.Cancel();
+
+static ClrTracker UseDatadogTracker(ILoggerFactory loggerFactory, string host, int port)
+{
+    // Run Client (datadog agent with udp)
+    var dogstatsdConfig = new StatsdConfig
+    {
+        StatsdServerName = host,
+        StatsdPort = port,
+        ConstantTags = [$"app:SandboxConsoleApp"],
+    };
+    DogStatsd.Configure(dogstatsdConfig);
+
+    // enable clr tracker
+    var tracker = new ClrTracker(loggerFactory);
+    tracker.EnableTracker();
+    tracker.StartTracker();
+    return tracker;
+}
+
+static ClrTracker UseLoggerTracker(ILoggerFactory loggerFactory)
+{
+    // enable clr tracker
+    var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
+    {
+        TrackerType = ClrTrackerType.Logger
+    });
+    tracker.EnableTracker();
+    tracker.StartTracker();
+    return tracker;
+}
 
 static async Task CreateWorkerThread100Async()
 {

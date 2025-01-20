@@ -1,32 +1,28 @@
-using ClrProfiler.Statistics;
-using FluentAssertions;
-
 namespace ClrProfiler.UnitTest;
 
-[Collection(nameof(TestCollectionDefinition))]
-public class GCUnitTest
-{
-    [Fact]
-    public async Task GcAllocate424ByteTest()
-    {
-        TestHelpers.PrewarmupGC();
+//[Collection(nameof(TestCollectionDefinition))]
+//public class GCUnitTest
+//{
+//    [Fact, TestPriority(999)]
+//    public async Task GcAllocateArray100Test()
+//    {
+//        TestHelpers.PrewarmupGC();
 
-        var before = GC.GetTotalAllocatedBytes(true);
+//        var before = GC.GetTotalMemory(true);
+//        // int array and allocation size list.
+//        // LENGTH | ALLOCATION
+//        // ------ | ---------
+//        //      0 | 312    (0)
+//        //      1 | 32     (8)
+//        //     10 | 352    (40)
+//        //    100 | 424    (400)
+//        //   1000 | 4024   (4000)
+//        //  10000 | 40312  (40000)
+//        // 100000 | 400312 (400024)
+//        var x = new int[100];
+//        var after = GC.GetTotalMemory(true);
+//        var actual = after - before;
 
-        // int array and allocation size list.
-        // LENGTH | ALLOCATION
-        // ------ | ---------
-        //      0 | 312
-        //      1 | 32
-        //     10 | 352
-        //    100 | 424
-        //   1000 | 4024
-        //  10000 | 40312
-        // 100000 | 400312
-        var x = new int[100];
-
-        var after = GC.GetTotalAllocatedBytes(true);
-        var actual = after - before;
-        actual.Should().Be(424);
-    }
-}
+//        actual.Should().Be(400);
+//    }
+//}

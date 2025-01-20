@@ -47,7 +47,7 @@ public class ProfilerTracker
     /// <summary>
     /// Singleton instance access.
     /// </summary>
-    public static Lazy<ProfilerTracker> Current = new Lazy<ProfilerTracker>(() => new ProfilerTracker());
+    public static Lazy<ProfilerTracker> Current { get; } = new(() => new ProfilerTracker());
 
     /// <summary>
     /// Options for the tracker
@@ -60,7 +60,7 @@ public class ProfilerTracker
     private ProfilerTracker()
     {
         // list Stats
-        profilerStats = new IProfiler[] {
+        profilerStats = [
             // event
             new GCEventProfiler(Options.GCEventCallback.OnSuccess, Options.GCEventCallback.OnError),
             new ThreadPoolEventProfiler(Options.ThreadPoolEventCallback.OnSuccess, Options.ThreadPoolEventCallback.OnError),
@@ -69,7 +69,7 @@ public class ProfilerTracker
             new ThreadInfoTimerProfiler(Options.ThreadInfoTimerCallback.OnSuccess, Options.ThreadInfoTimerCallback.OnError, Options.TimerOption),
             new GCInfoTimerProfiler(Options.GCInfoTimerCallback.OnSuccess, Options.GCInfoTimerCallback.OnError, Options.TimerOption),
             new ProcessInfoTimerProfiler(Options.ProcessInfoTimerCallback.OnSuccess, Options.ProcessInfoTimerCallback.OnError, Options.TimerOption),
-        };
+        ];
     }
 
     /// <summary>

@@ -1,12 +1,11 @@
 using ClrProfiler.Statistics;
-using FluentAssertions;
 
 namespace ClrProfiler.UnitTest;
 
 [Collection(nameof(TestCollectionDefinition))]
 public class GcProfilerUnitTest
 {
-    [Fact]
+    [Fact, TestPriority(0)]
     public void GCInfoTimerProfilerTest()
     {
         var before = GC.GetTotalAllocatedBytes(true);
@@ -49,15 +48,15 @@ public class GcProfilerUnitTest
 
         var total = GC.GetTotalAllocatedBytes(true);
 
-        actual.GCMode.Should().Be(GCMode.Workstation);
-        actual.CompactionMode.Should().Be(System.Runtime.GCLargeObjectHeapCompactionMode.Default);
-        actual.LatencyMode.Should().Be(System.Runtime.GCLatencyMode.Interactive);
+        Assert.Equal(GCMode.Workstation, actual.GCMode);
+        Assert.Equal(System.Runtime.GCLargeObjectHeapCompactionMode.Default, actual.CompactionMode);
+        Assert.Equal(System.Runtime.GCLatencyMode.Interactive, actual.LatencyMode);
 
-        actual.Gen0Count.Should().Be(gen0GCCount);
-        actual.Gen1Count.Should().Be(gen1GCCount);
-        actual.Gen2Count.Should().Be(gen2GCCount);
-        //actual.Gen0Size.Should().Be(24);
-        //actual.Gen1Size.Should().Be(24);
+        Assert.Equal(gen0GCCount, actual.Gen0Count);
+        Assert.Equal(gen1GCCount, actual.Gen1Count);
+        Assert.Equal(gen2GCCount, actual.Gen2Count);
+        //Assert.Equal(24, actual.Gen0Size);
+        //Assert.Equal(24, actual.Gen1Size);
 
         // 1
         profiler.Start();
@@ -73,10 +72,10 @@ public class GcProfilerUnitTest
         profiler.Stop();
         complete = false;
 
-        actual.Gen0Count.Should().Be(gen0GCCount);
-        actual.Gen1Count.Should().Be(gen1GCCount);
-        actual.Gen2Count.Should().Be(gen2GCCount);
-        //actual.Gen0Size.Should().Be(24);
+        Assert.Equal(gen0GCCount, actual.Gen0Count);
+        Assert.Equal(gen1GCCount, actual.Gen1Count);
+        Assert.Equal(gen2GCCount, actual.Gen2Count);
+        //Assert.Equal(24, actual.Gen0Size);
 
         // 2
         profiler.Start();
@@ -92,10 +91,10 @@ public class GcProfilerUnitTest
         profiler.Stop();
         complete = false;
 
-        actual.Gen0Count.Should().Be(gen0GCCount);
-        actual.Gen1Count.Should().Be(gen1GCCount);
-        actual.Gen2Count.Should().Be(gen2GCCount);
-        //actual.Gen0Size.Should().Be(24);
+        Assert.Equal(gen0GCCount, actual.Gen0Count);
+        Assert.Equal(gen1GCCount, actual.Gen1Count);
+        Assert.Equal(gen2GCCount, actual.Gen2Count);
+        //Assert.Equal(24, actual.Gen0Size);
 
         cts.Cancel();
     }

@@ -89,7 +89,7 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
                 var stat = new GCStartEndStatistics(gcIndex, type, generation, reason, duration, timeGCStart, timeGCEnd);
 
                 // write to channel
-                _channel.Writer.TryWrite(new GCEventStatistics(GCEventType.GCStartEnd, stat, new ()));
+                _channel.Writer.TryWrite(new GCEventStatistics(GCEventType.GCStartEnd, stat, new()));
             }
             else if (eventData.EventName.StartsWith("GCSuspendEEBegin", StringComparison.OrdinalIgnoreCase))
             {

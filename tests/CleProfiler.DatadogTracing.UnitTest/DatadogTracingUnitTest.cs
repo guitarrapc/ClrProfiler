@@ -1,5 +1,4 @@
 using ClrProfiler.DatadogTracing;
-using FluentAssertions;
 using StatsdClient;
 
 namespace CleProfiler.DatadogTracing.UnitTest;
@@ -13,7 +12,7 @@ public class DatadogTracingUnitTest
         var logger = TestHelpers.CreateLogger<DatadogTracingUnitTest>();
         var host = "127.0.0.1";
         var port = 8125;
-        var tag = "app:CleProfiler.DatadogTracing.UnitTest";
+        var tag = "app:ClrProfiler.DatadogTracing.UnitTest";
         var complete = false;
         var list = new List<string>();
 
@@ -40,7 +39,9 @@ public class DatadogTracingUnitTest
         DogStatsd.Configure(dogstatsdConfig);
 
         // enable clr tracker
-        var tracker = new ClrTracker(TestHelpers.CreateLogger<ClrTracker>());
+        using var loggerFactory = TestHelpers.CreateLoggerFactory();
+        var tracker = new ClrTracker(loggerFactory);
+        tracker.EnableTracker();
         tracker.StartTracker();
 
         // Allocate and GC
@@ -57,9 +58,12 @@ public class DatadogTracingUnitTest
         }
 
         //Assert.Equal("clr_diagnostics_event.gc.startend_count:18|c|#app:SandboxConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced\nclr_diagnostics_event.gc.suspend_object_count:181|c|#app:SandboxConsoleApp,gc_suspend_reason:gc\n", output);
-        list.Should().AllSatisfy(x => x.Contains(tag));
-        list.Where(x => x.Contains("clr_diagnostics_event.gc.suspend_object_count")).Should().NotBeEmpty();
-        list.Where(x => x.Contains("clr_diagnostics_event.gc.suspend_duration_ms")).Should().NotBeEmpty();
+        foreach (var item in list)
+        {
+            Assert.Contains(tag, item);
+        }
+        Assert.Contains(list, x => x.Contains("clr_diagnostics_event.gc.suspend_object_count"));
+        Assert.Contains(list, x => x.Contains("clr_diagnostics_event.gc.suspend_duration_ms"));
 
         tracker.StopTracker();
         cts.Cancel();

@@ -2,28 +2,20 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace ClrProfiler.Statistics;
 
-public readonly struct ProcessInfoStatistics : IEquatable<ProcessInfoStatistics>
+public readonly struct ProcessInfoStatistics(DateTime date, double cpu, long workingSet, long privateBytes) : IEquatable<ProcessInfoStatistics>
 {
-    public readonly DateTime Date;
-    public readonly double Cpu;
+    public readonly DateTime Date = date;
+    public readonly double Cpu = cpu;
     /// <summary>
     /// The working set includes both shared and private data. The shared data includes the pages that contain all the 
     /// instructions that the process executes, including instructions in the process modules and the system libraries.
     /// </summary>
-    public readonly long WorkingSet;
+    public readonly long WorkingSet = workingSet;
     /// <summary>
     /// The value returned by this property represents the current size of memory used by the process, in bytes, 
     /// that cannot be shared with other processes.
     /// </summary>
-    public readonly long PrivateBytes;
-
-    public ProcessInfoStatistics(DateTime date, double cpu, long workingSet, long privateBytes)
-    {
-        Date = date;
-        Cpu = cpu;
-        WorkingSet = workingSet;
-        PrivateBytes = privateBytes;
-    }
+    public readonly long PrivateBytes = privateBytes;
 
     public override bool Equals(object? obj)
     {
