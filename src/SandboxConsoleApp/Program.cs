@@ -25,11 +25,11 @@ var server = new UdpServer(host, port)
 };
 var serverTask = Task.Run(async () => await server.ListenAsync(cts.Token), cts.Token);
 
-// Use Datadog
-var tracker = UseDatadogTracker(loggerFactory, host, port);
-
-// Use Logger Instead
-//var tracker = UseLoggerTracker(loggerFactory);
+// Enable Tracker
+var useDatadog = true;
+var tracker = useDatadog
+    ? UseDatadogTracker(loggerFactory, host, port)
+    : UseLoggerTracker(loggerFactory);
 
 // Allocate and GC
 logger.LogInformation("Press Ctrl+C to cancel execution.");
