@@ -12,8 +12,8 @@ public abstract class ProfileEventListenerBase : EventListener
     private readonly EventKeywords _keywords;
 
     private Action<EventWrittenEventArgs>? _eventWritten;
-    private List<EventSource>? _tmpEventSourceList = new List<EventSource>();
-    private List<EventSource> _enabledEventSourceList = new List<EventSource>();
+    private List<EventSource>? _tmpEventSourceList = [];
+    private readonly List<EventSource> _enabledEventSourceList = [];
 
     // .ctor call after OnEventSourceCreated. https://github.com/Microsoft/ApplicationInsights-dotnet/issues/1106
     // https://github.com/dotnet/corefx/blob/master/src/Common/tests/System/Diagnostics/Tracing/TestEventListener.cs#L40
@@ -166,7 +166,7 @@ public abstract class ProfileEventListenerBase : EventListener
         {
             for (int i = 0; i < payload.Count; i++)
             {
-                var payloadString = payload[i] != null ? payload[i]?.ToString() : string.Empty;
+                var payloadString = payload[i]?.ToString() ?? string.Empty;
                 Console.WriteLine($"    Name = \"{payloadNames[i]}\" Value = \"{payloadString}\"");
             }
             Console.WriteLine("\n");

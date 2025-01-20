@@ -3,30 +3,20 @@ using Microsoft.Extensions.Logging;
 
 namespace ClrProfiler.DatadogTracing;
 
-public class ClrTracker
+public class ClrTracker(ILoggerFactory loggerFactory)
 {
     private static int singleAccess = 0;
-    private readonly ILogger<ClrTracker> _logger;
+    private readonly ILogger<ClrTracker> _logger = loggerFactory.CreateLogger<ClrTracker>();
+    private bool _enabled;
 
-    public ClrTracker(ILoggerFactory loggerFactory)
-    {
-        _logger = loggerFactory.CreateLogger<ClrTracker>();
-        EnableTracker();
-    }
-
-    public ClrTracker(ILogger<ClrTracker> logger)
-    {
-        _logger = logger;
-        EnableTracker();
-    }
-
-    private void EnableTracker()
+    public void EnableTracker()
     {
         // Single access guard
         Interlocked.Increment(ref singleAccess);
         if (singleAccess != 1) return;
 
-        _logger.LogInformation($"Enable tracking {nameof(ClrTracker)}");
+        _logger.LogDebug($"Enable {nameof(ClrTracker)}");
+        _enabled = true;
 
         // InProcess tracker
         ProfilerTracker.Options = new ProfilerTrackerOptions
@@ -41,16 +31,19 @@ public class ClrTracker
     }
     public void StartTracker()
     {
+        if (!_enabled) return;
         _logger.LogDebug($"Start tracking {nameof(ClrTracker)}");
         ProfilerTracker.Current.Value.Start();
     }
     public void StopTracker()
     {
+        if (!_enabled) return;
         _logger.LogDebug($"Stop tracking {nameof(ClrTracker)}");
         ProfilerTracker.Current.Value.Stop();
     }
     public void CancelTracker()
     {
+        if (!_enabled) return;
         _logger.LogDebug($"Cancel tracking {nameof(ClrTracker)}");
         ProfilerTracker.Current.Value.Cancel();
     }

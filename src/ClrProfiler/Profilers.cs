@@ -40,7 +40,7 @@ public class GCEventProfiler : IProfiler
     private readonly GCEventListener? listener;
 
     public string Name { get; } = nameof(GCEventProfiler);
-    public bool Enabled => listener == null ? false : listener.Enabled;
+    public bool Enabled => listener != null && listener.Enabled;
 
     public GCEventProfiler(Func<GCEventStatistics, Task> onEventEmit, Action<Exception> onEventError)
     {
@@ -87,7 +87,7 @@ public class ThreadPoolEventProfiler : IProfiler
     private readonly ThreadPoolEventListener? listener;
 
     public string Name { get; } = nameof(ThreadPoolEventProfiler);
-    public bool Enabled => listener == null ? false : listener.Enabled;
+    public bool Enabled => listener != null && listener.Enabled;
 
     public ThreadPoolEventProfiler(Func<ThreadPoolEventStatistics, Task> onEventEmit, Action<Exception> onEventError)
     {
@@ -134,7 +134,7 @@ public class ContentionEventProfiler : IProfiler
     private readonly ContentionEventListener? listener;
 
     public string Name { get; } = nameof(ContentionEventProfiler);
-    public bool Enabled => listener == null ? false : listener.Enabled;
+    public bool Enabled => listener != null && listener.Enabled;
 
     public ContentionEventProfiler(Func<ContentionEventStatistics, Task> onEventEmit, Action<Exception> onEventError)
     {
@@ -181,7 +181,7 @@ public class ThreadInfoTimerProfiler : IProfiler
     private readonly ThreadInfoTimerListener? listener;
 
     public string Name { get; } = nameof(ThreadInfoTimerProfiler);
-    public bool Enabled => listener == null ? false : listener.Enabled;
+    public bool Enabled => listener != null && listener.Enabled;
 
     public ThreadInfoTimerProfiler(Func<ThreadInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, (TimeSpan dueTime, TimeSpan interval) options)
     {
@@ -229,7 +229,7 @@ public class GCInfoTimerProfiler : IProfiler
     private readonly GCInfoTimerListener? listener;
 
     public string Name { get; } = nameof(GCInfoTimerProfiler);
-    public bool Enabled => listener == null ? false : listener.Enabled;
+    public bool Enabled => listener != null && listener.Enabled;
 
     public GCInfoTimerProfiler(Func<GCInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, (TimeSpan dueTime, TimeSpan interval) options)
     {
@@ -277,7 +277,7 @@ public class ProcessInfoTimerProfiler : IProfiler
     private readonly ProcessInfoTimerListener? listener;
 
     public string Name { get; } = nameof(ProcessInfoTimerProfiler);
-    public bool Enabled => listener == null ? false : listener.Enabled;
+    public bool Enabled => listener != null && listener.Enabled;
 
     public ProcessInfoTimerProfiler(Func<ProcessInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, (TimeSpan dueTime, TimeSpan interval) options)
     {

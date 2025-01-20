@@ -40,7 +40,8 @@ public class DatadogTracingUnitTest
         DogStatsd.Configure(dogstatsdConfig);
 
         // enable clr tracker
-        var tracker = new ClrTracker(TestHelpers.CreateLogger<ClrTracker>());
+        using var loggerFactory = TestHelpers.CreateLoggerFactory();
+        var tracker = new ClrTracker(loggerFactory);
         tracker.StartTracker();
 
         // Allocate and GC

@@ -2,34 +2,19 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace ClrProfiler.Statistics;
 
-public readonly struct ThreadInfoStatistics : IEquatable<ThreadInfoStatistics>
+public readonly struct ThreadInfoStatistics(DateTime date, int availableWorkerThreads, int availableCompletionPortThreads, int maxWorkerThreads, int maxCompletionPortThreads, int threadCount, long queueLength, long completedItemsCount, long lockContentionCount) : IEquatable<ThreadInfoStatistics>
 {
-    public readonly DateTime Date;
-    public readonly int AvailableWorkerThreads;
-    public readonly int AvailableCompletionPortThreads;
-    public readonly int MaxWorkerThreads;
-    public readonly int MaxCompletionPortThreads;
-    public readonly int UsingWorkerThreads;
-    public readonly int UsingCompletionPortThreads;
-    public readonly int ThreadCount;
-    public readonly long QueueLength;
-    public readonly long CompletedItemsCount;
-    public readonly long LockContentionCount;
-
-    public ThreadInfoStatistics(DateTime date, int availableWorkerThreads, int availableCompletionPortThreads, int maxWorkerThreads, int maxCompletionPortThreads, int threadCount, long queueLength, long completedItemsCount, long lockContentionCount)
-    {
-        Date = date;
-        AvailableWorkerThreads = availableWorkerThreads;
-        AvailableCompletionPortThreads = availableCompletionPortThreads;
-        MaxWorkerThreads = maxWorkerThreads;
-        MaxCompletionPortThreads = maxCompletionPortThreads;
-        UsingWorkerThreads = maxWorkerThreads - availableWorkerThreads;
-        UsingCompletionPortThreads = maxCompletionPortThreads - availableCompletionPortThreads;
-        ThreadCount = threadCount;
-        QueueLength = queueLength;
-        CompletedItemsCount = completedItemsCount;
-        LockContentionCount = lockContentionCount;
-    }
+    public readonly DateTime Date = date;
+    public readonly int AvailableWorkerThreads = availableWorkerThreads;
+    public readonly int AvailableCompletionPortThreads = availableCompletionPortThreads;
+    public readonly int MaxWorkerThreads = maxWorkerThreads;
+    public readonly int MaxCompletionPortThreads = maxCompletionPortThreads;
+    public readonly int UsingWorkerThreads = maxWorkerThreads - availableWorkerThreads;
+    public readonly int UsingCompletionPortThreads = maxCompletionPortThreads - availableCompletionPortThreads;
+    public readonly int ThreadCount = threadCount;
+    public readonly long QueueLength = queueLength;
+    public readonly long CompletedItemsCount = completedItemsCount;
+    public readonly long LockContentionCount = lockContentionCount;
 
     public override bool Equals(object? obj)
     {
