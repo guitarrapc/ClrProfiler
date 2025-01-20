@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
 
     <!-- NuGet -->
-    <Description>.NET CLR Profiler to monitor Thread, GC statistics</Description>
+    <Description>Zero-dependency .NET library designed to monitor and collect detailed metrics on Contention Events, Garbage Collection (GC), Processes, Threads, and ThreadPool activities through EventListener.</Description>
   </PropertyGroup>
 
 </Project>

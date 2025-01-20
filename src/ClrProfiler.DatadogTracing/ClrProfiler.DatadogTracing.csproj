@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
 
     <!-- NuGet -->
-    <Description>.NET CLR Profiler to monitor Thread, GC statistics. Datadog adaptor to send metrics.</Description>
+    <Description>Zero-dependency .NET library designed to monitor and collect detailed metrics on Contention Events, Garbage Collection (GC), Processes, Threads, and ThreadPool activities through EventListener. Datadog adaptor to send metrics.</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="DogStatsD-CSharp-Client" />
