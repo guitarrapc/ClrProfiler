@@ -20,11 +20,13 @@ jobs:
       # build
       - run: dotnet build -c ${{ env.BUILD_CONFIG }} -p:Version=${{ env.GIT_TAG }}
       # pack
-      - run: dotnet pack -c ${{ env.BUILD_CONFIG }} -p:Version=${{ env.GIT_TAG }} -o ./.artifacts/
+      - run: dotnet pack -c ${{ env.BUILD_CONFIG }} -p:Version=${{ env.GIT_TAG }} -o ./.nuget/
       - uses: actions/upload-artifact@v4
         with:
           name: nuget
-          path: ./.artifacts/
+          path: ./.nuget/
+          retention-days: 1
+          if-no-files-found: error
 
   create-release:
     needs: [build-dotnet]
@@ -32,16 +34,18 @@ jobs:
     steps:
       - uses: guitarrapc/actions/.github/actions/setup-dotnet@main
       - run: echo "GIT_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+      # nuget
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: ./nuget
+      - name: List Nuget
+        run: ls -al ./nuget
       # release
       - name: Create Release
         run: gh release create ${{ env.GIT_TAG }} --draft --verify-tag --title "Ver.${{ env.GIT_TAG }}" --generate-notes
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # nuget
-      - uses: actions/download-artifact@v4
-        with:
-          name: nuget
-          path: ./nuget
       # upload nuget
       - run: dotnet nuget push "./nuget/*.nupkg" --skip-duplicate -s https://api.nuget.org/v3/index.json -k ${{ secrets.SYNCED_NUGET_KEY }}
