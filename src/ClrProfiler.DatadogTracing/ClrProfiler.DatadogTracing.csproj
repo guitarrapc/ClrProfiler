@@ -3,6 +3,9 @@
     <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- NuGet -->
+    <Description>.NET CLR Profiler to monitor Thread, GC statistics. Datadog adaptor to send metrics.</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="DogStatsD-CSharp-Client" />
