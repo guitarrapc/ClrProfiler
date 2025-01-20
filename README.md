@@ -1,6 +1,6 @@
 # ClrProfiler
 
-Library to gather .NET CLR Profiler for ContentionEvent, GC, Process, Thread and ThreadPool via EventListener.
+Zero dependency library to gather .NET CLR Profiler for ContentionEvent, GC, Process, Thread and ThreadPool via EventListener.
 Offering following Cloud tracing packages.
 
 * [x] Datadog
