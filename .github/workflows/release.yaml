@@ -1,0 +1,50 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+*" # only tag
+
+env:
+  BUILD_CONFIG: Release
+
+jobs:
+  build-dotnet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: guitarrapc/actions/.github/actions/setup-dotnet@main
+      # tag
+      - run: echo "GIT_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+      # build
+      - run: dotnet build -c ${{ env.BUILD_CONFIG }} -p:Version=${{ env.GIT_TAG }}
+      # pack
+      - run: dotnet pack -c ${{ env.BUILD_CONFIG }} -p:Version=${{ env.GIT_TAG }} -o ./.artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget
+          path: ./.artifacts/
+
+  create-release:
+    needs: [build-dotnet]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: guitarrapc/actions/.github/actions/setup-dotnet@main
+      - run: echo "GIT_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+      # Create Release
+      - uses: actions/create-release@v1
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ github.ref }}
+          draft: true
+          prerelease: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: ./nuget
+      # upload nuget
+      - run: dotnet nuget push "./nuget/*.nupkg" --skip-duplicate -s https://api.nuget.org/v3/index.json -k ${{ secrets.SYNCED_NUGET_KEY }}
