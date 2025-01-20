@@ -42,6 +42,7 @@ public class DatadogTracingUnitTest
         // enable clr tracker
         using var loggerFactory = TestHelpers.CreateLoggerFactory();
         var tracker = new ClrTracker(loggerFactory);
+        tracker.EnableTracker();
         tracker.StartTracker();
 
         // Allocate and GC
