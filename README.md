@@ -13,7 +13,7 @@
 
 ## Getting Started
 
-To utilize ClrProfiler with Datadog tracing, include the `ClrProfiler.DatadogTracing` package in your project. Initialize the Datadog client and enable the CLR tracker as demonstrated below:
+To utilize ClrProfiler with Datadog metrics, include the `ClrProfiler.DatadogTracing` package in your project. Initialize the Dogstatsd and enable the CLR tracker as demonstrated below:
 
 ```sh
 dotnet add package ClrProfiler.DatadogTracing
@@ -22,7 +22,7 @@ dotnet add package ClrProfiler.DatadogTracing
 Start Dogstatsd and ClrTracker.
 
 ```cs
-// Run Client (datadog agent with udp)
+// Run Dogstatsd with UDP
 var dogstatsdConfig = new StatsdConfig
 {
     StatsdServerName = host,
@@ -41,7 +41,7 @@ Now you are ready to use ClrTracker on your application. Metrics will be sent to
 
 ## Debugging
 
-If you want to debug behaviour, use ClrTrackerType.Logger instead. This will log metrics to ILogger.Debug.
+If you want debug behaviour, use ClrTrackerType.Logger instead. This will log metrics to ILogger.Debug.
 
 ```cs
 // enable clr tracker
