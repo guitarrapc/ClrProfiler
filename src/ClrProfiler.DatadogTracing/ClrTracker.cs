@@ -35,7 +35,7 @@ public class ClrTracker
         {
             ClrTrackerType.Datadog => RegisterDatadogProfilerTrackerOptions(),
             ClrTrackerType.Logger => RegisterLoggerProfilerTrackerOptions(),
-            ClrTrackerType.Custom when _options.CustomHandler is not null => ProfilerTracker.Options = new ProfilerTrackerOptions
+            ClrTrackerType.Custom when _options.CustomHandler is not null => new ProfilerTrackerOptions
             {
                 ContentionEventCallback = (_options.CustomHandler.OnContentionEventAsync, _options.CustomHandler.OnException),
                 GCEventCallback = (_options.CustomHandler.OnGCEventAsync, _options.CustomHandler.OnException),

@@ -5,9 +5,10 @@ namespace ClrProfiler.DatadogTracing;
 
 public class LoggerTrackerCallbackHandler(ILogger logger) : IClrTrackerCallbackHandler
 {
-    public async Task OnContentionEventAsync(ContentionEventStatistics statistics)
+    public Task OnContentionEventAsync(ContentionEventStatistics statistics)
     {
         LoggerTracing.ContentionEventStartEnd(statistics, logger);
+        return Task.CompletedTask;
     }
 
     public Task OnGCEventAsync(GCEventStatistics statistics)
