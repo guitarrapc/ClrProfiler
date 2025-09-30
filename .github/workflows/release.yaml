@@ -51,7 +51,7 @@ jobs:
       - name: List Nuget
         run: ls -al ./nuget
       # release
-      - name: Create Relase
+      - name: Create Release
         uses: guitarrapc/actions/.github/actions/create-release@main
         with:
           tag: ${{ github.ref_name }}
