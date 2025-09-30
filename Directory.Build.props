@@ -15,6 +15,7 @@
     <PackageTags>Profiler, Profiling, Perfomance</PackageTags>
     <PackageVersion>$(Version)</PackageVersion>
     <PackageProjectUrl>https://github.com/guitarrapc/ClrProfiler</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>$(PackageProjectUrl)</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <NeutralLanguage>en</NeutralLanguage>
