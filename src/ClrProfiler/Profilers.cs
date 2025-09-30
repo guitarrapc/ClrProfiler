@@ -35,6 +35,7 @@ public interface IProfiler : IDisposable
     /// <returns></returns>
     Task ReadResultAsync(CancellationToken cancellationToken);
 }
+
 public class GCEventProfiler : IProfiler
 {
     private readonly GCEventListener? listener;

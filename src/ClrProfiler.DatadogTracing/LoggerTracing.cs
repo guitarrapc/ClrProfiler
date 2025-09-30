@@ -7,7 +7,7 @@ namespace ClrProfiler.DatadogTracing;
 
 public static class LoggerTracing
 {
-    private static readonly ConcurrentDictionary<string, string[]> _tagCache = new ConcurrentDictionary<string, string[]>();
+    private static readonly ConcurrentDictionary<string, string[]> _tagCache = new();
 
     /// list of event tags
     /// - clr_diagnostics_event.contention.startend_count"

@@ -81,7 +81,6 @@ public readonly struct GCStartEndStatistics(uint index, uint type, uint generati
 
     public string GetReasonString()
     {
-        // https://learn.microsoft.com/en-us/dotnet/framework/performance/garbage-collection-etw-events#gcstart_v1-event
         return Reason switch
         {
             0 => "soh",
@@ -151,7 +150,6 @@ public readonly struct GCSuspendStatistics(double durationMillisec, uint reason,
 
     public string GetReasonString()
     {
-        // https://learn.microsoft.com/en-us/dotnet/framework/performance/garbage-collection-etw-events#gcsuspendee_v1-event
         return Reason switch
         {
             0 => "other",

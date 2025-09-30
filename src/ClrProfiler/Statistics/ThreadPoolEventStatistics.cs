@@ -98,6 +98,7 @@ public readonly struct ThreadPoolAdjustmentStatistics(long time, double averageT
     /// 0x05 - Stabilizing.
     /// 0x06 - Starvation.
     /// 0x07 - Thread timed out.
+    /// 0x08 - Cooperative blocking. (undocumented)
     /// </summary>
     /// <remarks>
     /// 0x03 isnt usable data, as it were just thread adjustment with hill climing heulistics.
