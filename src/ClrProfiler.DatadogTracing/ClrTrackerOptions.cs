@@ -2,7 +2,7 @@ namespace ClrProfiler.DatadogTracing;
 
 public record ClrTrackerOptions
 {
-    public static ClrTrackerOptions Default => new ClrTrackerOptions
+    public static ClrTrackerOptions Default => new()
     {
         TrackerType = ClrTrackerType.Datadog,
     };

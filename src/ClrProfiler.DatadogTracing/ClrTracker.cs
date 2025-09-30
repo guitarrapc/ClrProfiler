@@ -87,10 +87,9 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task DatadogContentionEventProfilerCallbackAsync(ContentionEventStatistics arg)
+    private async Task DatadogContentionEventProfilerCallbackAsync(ContentionEventStatistics arg)
     {
         DatadogTracing.ContentionEventStartEnd(arg);
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -98,7 +97,7 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task DatadogGCEventProfilerCallbackAsync(GCEventStatistics arg)
+    private async Task DatadogGCEventProfilerCallbackAsync(GCEventStatistics arg)
     {
         if (arg.Type == GCEventType.GCStartEnd)
         {
@@ -108,7 +107,6 @@ public class ClrTracker
         {
             DatadogTracing.GcEventSuspend(arg.GCSuspendStatistics);
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -116,7 +114,7 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task DatadogThreadPoolEventProfilerCallbackAsync(ThreadPoolEventStatistics arg)
+    private async Task DatadogThreadPoolEventProfilerCallbackAsync(ThreadPoolEventStatistics arg)
     {
         if (arg.Type == ThreadPoolStatisticType.ThreadPoolWorkerStartStop)
         {
@@ -132,7 +130,6 @@ public class ClrTracker
                 DatadogTracing.ThreadPoolStarvationEventAdjustment(arg.ThreadPoolAdjustment);
             }
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -140,10 +137,9 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task DatadogGCInfoTimerCallbackAsync(GCInfoStatistics arg)
+    private async Task DatadogGCInfoTimerCallbackAsync(GCInfoStatistics arg)
     {
         DatadogTracing.GcInfoTimerGauge(arg);
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -151,10 +147,9 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task DatadogProcessInfoTimerCallbackAsync(ProcessInfoStatistics arg)
+    private async Task DatadogProcessInfoTimerCallbackAsync(ProcessInfoStatistics arg)
     {
         DatadogTracing.ProcessInfoTimerGauge(arg);
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -162,11 +157,10 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task DatadogThreadInfoTimerCallbackAsync(ThreadInfoStatistics arg)
+    private async Task DatadogThreadInfoTimerCallbackAsync(ThreadInfoStatistics arg)
     {
         DatadogTracing.ThreadInfoTimerGauge(arg);
         var usingWorkerThreads = arg.MaxWorkerThreads - arg.AvailableWorkerThreads;
-        return Task.CompletedTask;
     }
 
     // Logger
@@ -176,10 +170,9 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task LoggerContentionEventProfilerCallbackAsync(ContentionEventStatistics arg)
+    private async Task LoggerContentionEventProfilerCallbackAsync(ContentionEventStatistics arg)
     {
         LoggerTracing.ContentionEventStartEnd(arg, _logger);
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -187,7 +180,7 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task LoggerGCEventProfilerCallbackAsync(GCEventStatistics arg)
+    private async Task LoggerGCEventProfilerCallbackAsync(GCEventStatistics arg)
     {
         if (arg.Type == GCEventType.GCStartEnd)
         {
@@ -197,7 +190,6 @@ public class ClrTracker
         {
             LoggerTracing.GcEventSuspend(arg.GCSuspendStatistics, _logger);
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -205,7 +197,7 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task LoggerThreadPoolEventProfilerCallbackAsync(ThreadPoolEventStatistics arg)
+    private async Task LoggerThreadPoolEventProfilerCallbackAsync(ThreadPoolEventStatistics arg)
     {
         if (arg.Type == ThreadPoolStatisticType.ThreadPoolWorkerStartStop)
         {
@@ -221,7 +213,6 @@ public class ClrTracker
                 LoggerTracing.ThreadPoolStarvationEventAdjustment(arg.ThreadPoolAdjustment, _logger);
             }
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -229,10 +220,9 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task LoggerGCInfoTimerCallbackAsync(GCInfoStatistics arg)
+    private async Task LoggerGCInfoTimerCallbackAsync(GCInfoStatistics arg)
     {
         LoggerTracing.GcInfoTimerGauge(arg, _logger);
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -240,10 +230,9 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task LoggerProcessInfoTimerCallbackAsync(ProcessInfoStatistics arg)
+    private async Task LoggerProcessInfoTimerCallbackAsync(ProcessInfoStatistics arg)
     {
         LoggerTracing.ProcessInfoTimerGauge(arg, _logger);
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -251,10 +240,9 @@ public class ClrTracker
     /// </summary>
     /// <param name="arg"></param>
     /// <returns></returns>
-    private Task LoggerThreadInfoTimerCallbackAsync(ThreadInfoStatistics arg)
+    private async Task LoggerThreadInfoTimerCallbackAsync(ThreadInfoStatistics arg)
     {
         LoggerTracing.ThreadInfoTimerGauge(arg, _logger);
         var usingWorkerThreads = arg.MaxWorkerThreads - arg.AvailableWorkerThreads;
-        return Task.CompletedTask;
     }
 }
