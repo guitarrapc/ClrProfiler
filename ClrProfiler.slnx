@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/sandbox/">
+    <Project Path="src/SandboxConsoleApp/SandboxConsoleApp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CleProfiler.DatadogTracing.UnitTest/CleProfiler.DatadogTracing.UnitTest.csproj" />
+    <Project Path="tests/ClrProfiler.UnitTest/ClrProfiler.UnitTest.csproj" />
+  </Folder>
+  <Project Path="src/ClrProfiler.DatadogTracing/ClrProfiler.DatadogTracing.csproj" />
+  <Project Path="src/ClrProfiler/ClrProfiler.csproj" />
+</Solution>
