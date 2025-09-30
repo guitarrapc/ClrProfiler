@@ -53,6 +53,84 @@ tracker.EnableTracker();
 tracker.StartTracker();
 ```
 
+## Custom Profiling
+
+For advanced scenarios, you can implement custom profiling by creating your own callback handler. Implement the `IClrTrackerCallbackHandler` interface to define custom behavior for each CLR event type.
+
+```cs
+public class MyCustomTrackerHandler : IClrTrackerCallbackHandler
+{
+    private readonly IMyMetricsService _metrics;
+
+    public MyCustomTrackerHandler(IMyMetricsService metrics)
+    {
+        _metrics = metrics;
+    }
+
+    public Task OnGCEventAsync(GCEventStatistics statistics)
+    {
+        // Custom GC event handling
+        _metrics.RecordGC(statistics);
+        return Task.CompletedTask;
+    }
+
+    public Task OnContentionEventAsync(ContentionEventStatistics statistics)
+    {
+        // Custom contention event handling
+        _metrics.RecordContention(statistics);
+        return Task.CompletedTask;
+    }
+
+    public Task OnThreadPoolEventAsync(ThreadPoolEventStatistics statistics)
+    {
+        // Custom threadpool event handling
+        _metrics.RecordThreadPool(statistics);
+        return Task.CompletedTask;
+    }
+
+    public Task OnGCInfoTimerAsync(GCInfoStatistics statistics)
+    {
+        // Custom GC info timer handling
+        _metrics.RecordGCInfo(statistics);
+        return Task.CompletedTask;
+    }
+
+    public Task OnProcessInfoTimerAsync(ProcessInfoStatistics statistics)
+    {
+        // Custom process info timer handling
+        _metrics.RecordProcessInfo(statistics);
+        return Task.CompletedTask;
+    }
+
+    public Task OnThreadInfoTimerAsync(ThreadInfoStatistics statistics)
+    {
+        // Custom thread info timer handling
+        _metrics.RecordThreadInfo(statistics);
+        return Task.CompletedTask;
+    }
+
+    public void OnException(Exception exception)
+    {
+        // Custom exception handling
+        _metrics.RecordError(exception);
+    }
+}
+```
+
+Use your custom handler by specifying `ClrTrackerType.Custom` and providing your handler implementation:
+
+```cs
+var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
+{
+    TrackerType = ClrTrackerType.Custom,
+    CustomHandler = new MyCustomTrackerHandler(metricsService)
+});
+tracker.EnableTracker();
+tracker.StartTracker();
+```
+
+This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
+
 ## Sandbox
 
 Run SandboxConsoleApp, then metrics ingested will shown on Console. Sandbox runs both Server and Client. Server is listen UDP Server on `127.0.0.1:8125` and accept request from local datadog agent.
