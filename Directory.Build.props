@@ -1,27 +1,31 @@
 <Project>
   <PropertyGroup>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
-    <WarningsAsErrors>$(WarningsAsErrors);Nullable</WarningsAsErrors>
-  </PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
 
-  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);Nullable</WarningsAsErrors>
+
     <!-- NuGet -->
-    <PackageVersion>$(Version)</PackageVersion>
+    <IsPackable>false</IsPackable>
+    <Version>1.0.0</Version>
     <Authors>guitarrapc</Authors>
-    <Company />
-    <Copyright>guitarrapc</Copyright>
-    <Description>.NET CLR Profiler to monitor Thread, GC statistics</Description>
+    <Copyright>© guitarapc</Copyright>
+    <PackageTags>Profiler, Profiling, Perfomance</PackageTags>
+    <PackageVersion>$(Version)</PackageVersion>
     <PackageProjectUrl>https://github.com/guitarrapc/ClrProfiler</PackageProjectUrl>
     <RepositoryUrl>$(PackageProjectUrl)</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>Profiler, Profiling, Perfomance</PackageTags>
     <NeutralLanguage>en</NeutralLanguage>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-
-    <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)LICENSE" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all"/>
