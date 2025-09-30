@@ -55,7 +55,7 @@ jobs:
         uses: guitarrapc/actions/.github/actions/create-release@main
         with:
           tag: ${{ github.ref_name }}
-          title: v${{ github.ref_name }}
+          title: Ver.${{ github.ref_name }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
       # upload nuget
       - run: dotnet nuget push "./nuget/*.nupkg" --skip-duplicate -s https://api.nuget.org/v3/index.json -k "${NUGET_KEY}"
