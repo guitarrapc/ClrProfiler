@@ -12,4 +12,8 @@
     <PackageReference Include="ZLogger" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\ClrProfiler.DatadogTracing\ClrProfiler.DatadogTracing.csproj" />
+  </ItemGroup>
+
 </Project>
