@@ -5,9 +5,6 @@ on:
     tags:
       - "[0-9]+.[0-9]+.[0-9]+*" # only tag
 
-env:
-  BUILD_CONFIG: Release
-
 jobs:
   build-dotnet:
     permissions:
@@ -19,10 +16,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: guitarrapc/actions/.github/actions/setup-dotnet@main
-      # build
-      - run: dotnet build -c ${{ env.BUILD_CONFIG }} -p:Version=${{ github.ref_name }}
-      # pack
-      - run: dotnet pack -c ${{ env.BUILD_CONFIG }} -p:Version=${{ github.ref_name }} -o ./publish/
+      - run: dotnet build -c Release -p:Version="${GIT_TAG}"
+        env:
+          GIT_TAG: ${{ github.ref_name }}
+      - run: dotnet pack -c Release -p:Version="${GIT_TAG}" -o ./publish
+        env:
+          GIT_TAG: ${{ github.ref_name }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: nuget
@@ -34,11 +33,17 @@ jobs:
     needs: [build-dotnet]
     permissions:
       contents: write
+      id-token: write # for NuGet Trusted Publish
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: guitarrapc/actions/.github/actions/setup-dotnet@main
       # nuget
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.SYNCED_NUGET_USER }}
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: nuget
@@ -46,10 +51,13 @@ jobs:
       - name: List Nuget
         run: ls -al ./nuget
       # release
-      - name: Create Release
-        run: gh release create ${{ github.ref_name }} --draft --verify-tag --title "Ver.${{ github.ref_name }}" --generate-notes
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Relase
+        uses: guitarrapc/actions/.github/actions/create-release@main
+        with:
+          tag: ${{ github.ref_name }}
+          title: v${{ github.ref_name }}
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
       # upload nuget
-      - run: dotnet nuget push "./nuget/*.nupkg" --skip-duplicate -s https://api.nuget.org/v3/index.json -k ${{ secrets.SYNCED_NUGET_KEY }}
+      - run: dotnet nuget push "./nuget/*.nupkg" --skip-duplicate -s https://api.nuget.org/v3/index.json -k "${NUGET_KEY}"
+        env:
+          NUGET_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
