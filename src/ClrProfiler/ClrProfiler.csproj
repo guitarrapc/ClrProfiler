@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
 
     <!-- NuGet -->
+    <IsPackable>true</IsPackable>
     <Description>Zero-dependency .NET library designed to monitor and collect detailed metrics on Contention Events, Garbage Collection (GC), Processes, Threads, and ThreadPool activities through EventListener.</Description>
   </PropertyGroup>
 

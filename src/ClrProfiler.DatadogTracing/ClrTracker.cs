@@ -48,18 +48,21 @@ public class ClrTracker
             _ => throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemented."),
         };
     }
+
     public void StartTracker()
     {
         if (!_enabled) return;
         _logger.LogDebug($"Start tracking {nameof(ClrTracker)}");
         ProfilerTracker.Current.Value.Start();
     }
+
     public void StopTracker()
     {
         if (!_enabled) return;
         _logger.LogDebug($"Stop tracking {nameof(ClrTracker)}");
         ProfilerTracker.Current.Value.Stop();
     }
+
     public void CancelTracker()
     {
         if (!_enabled) return;

@@ -51,6 +51,7 @@ public class GCEventProfiler : IProfiler
             listener = new GCEventListener(onEventEmit, onEventError);
         }
     }
+
     public void Restart()
     {
         listener?.Restart();
@@ -98,6 +99,7 @@ public class ThreadPoolEventProfiler : IProfiler
             listener = new ThreadPoolEventListener(onEventEmit, onEventError);
         }
     }
+
     public void Restart()
     {
         listener?.Restart();
@@ -145,6 +147,7 @@ public class ContentionEventProfiler : IProfiler
             listener = new ContentionEventListener(onEventEmit, onEventError);
         }
     }
+
     public void Restart()
     {
         listener?.Restart();
