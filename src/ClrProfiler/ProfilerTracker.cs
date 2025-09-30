@@ -1,45 +1,46 @@
 using ClrProfiler.Statistics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace ClrProfiler;
 
 /// <summary>
-/// Register Options for tracker callbacks and Cancelltion token
+/// Register Options for tracker callbacks and Cancellation token
 /// </summary>
 public class ProfilerTrackerOptions
 {
     /// <summary>
-    /// CancellcationToken to cancel reading event channel.
+    /// CancellationTokenSource to cancel reading event channel.
     /// </summary>
     public CancellationTokenSource CancellationTokenSource { get; set; } = new CancellationTokenSource();
-    /// <summary>
-    /// Callback invoke when Contention Event emitted (generally lock event) and error.
-    /// </summary>
-    public (Func<ContentionEventStatistics, Task> OnSuccess, Action<Exception> OnError) ContentionEventCallback { get; set; }
-    /// <summary>
-    /// Callback invoke when GC Event emitted and error.
-    /// </summary>
-    public (Func<GCEventStatistics, Task> OnSuccess, Action<Exception> OnError) GCEventCallback { get; set; }
-    /// <summary>
-    /// Callback invoke when ThreadPool Event emitted and error.
-    /// </summary>
-    public (Func<ThreadPoolEventStatistics, Task> OnSuccess, Action<Exception> OnError) ThreadPoolEventCallback { get; set; }
-    /// <summary>
-    /// Callback invoke when Timer GCInfo Event emitted and error.
-    /// </summary>
-    public (Func<GCInfoStatistics, Task> OnSuccess, Action<Exception> OnError) GCInfoTimerCallback { get; set; }
-    /// <summary>
-    /// Callback invoke when Timer ProcessInfo Event emitted and error.
-    /// </summary>
-    public (Func<ProcessInfoStatistics, Task> OnSuccess, Action<Exception> OnError) ProcessInfoTimerCallback { get; set; }
-    /// <summary>
-    /// Callback invoke when Timer ThreadInfo Event emitted and error.
-    /// </summary>
-    public (Func<ThreadInfoStatistics, Task> OnSuccess, Action<Exception> OnError) ThreadInfoTimerCallback { get; set; }
-
     /// <summary>
     /// Timer dueTime/interval Options.
     /// </summary>
     public (TimeSpan dueTime, TimeSpan intervalPeriod) TimerOption { get; set; } = (TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+
+    /// <summary>
+    /// Callback invoke when Contention Event emitted (generally lock event) and error.
+    /// </summary>
+    public (Func<ContentionEventStatistics, Task> OnSuccess, Action<Exception> OnError) ContentionEventCallback { get; set; } = (stats => Task.CompletedTask, _ => { });
+    /// <summary>
+    /// Callback invoke when GC Event emitted and error.
+    /// </summary>
+    public (Func<GCEventStatistics, Task> OnSuccess, Action<Exception> OnError) GCEventCallback { get; set; } = (stats => Task.CompletedTask, _ => { });
+    /// <summary>
+    /// Callback invoke when ThreadPool Event emitted and error.
+    /// </summary>
+    public (Func<ThreadPoolEventStatistics, Task> OnSuccess, Action<Exception> OnError) ThreadPoolEventCallback { get; set; } = (stats => Task.CompletedTask, _ => { });
+    /// <summary>
+    /// Callback invoke when Timer GCInfo Event emitted and error.
+    /// </summary>
+    public (Func<GCInfoStatistics, Task> OnSuccess, Action<Exception> OnError) GCInfoTimerCallback { get; set; } = (stats => Task.CompletedTask, _ => { });
+    /// <summary>
+    /// Callback invoke when Timer ProcessInfo Event emitted and error.
+    /// </summary>
+    public (Func<ProcessInfoStatistics, Task> OnSuccess, Action<Exception> OnError) ProcessInfoTimerCallback { get; set; } = (stats => Task.CompletedTask, _ => { });
+    /// <summary>
+    /// Callback invoke when Timer ThreadInfo Event emitted and error.
+    /// </summary>
+    public (Func<ThreadInfoStatistics, Task> OnSuccess, Action<Exception> OnError) ThreadInfoTimerCallback { get; set; } = (stats => Task.CompletedTask, _ => { });
 }
 
 public class ProfilerTracker

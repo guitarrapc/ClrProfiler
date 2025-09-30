@@ -1,4 +1,3 @@
-using ClrProfiler.Statistics;
 using Microsoft.Extensions.Logging;
 
 namespace ClrProfiler.DatadogTracing;
@@ -32,33 +31,22 @@ public class ClrTracker
         _enabled = true;
 
         // InProcess tracker
-        switch (_options.TrackerType)
+        ProfilerTracker.Options = _options.TrackerType switch
         {
-            case ClrTrackerType.Datadog:
-                ProfilerTracker.Options = new ProfilerTrackerOptions
-                {
-                    ContentionEventCallback = (DatadogContentionEventProfilerCallbackAsync, OnException),
-                    GCEventCallback = (DatadogGCEventProfilerCallbackAsync, OnException),
-                    ThreadPoolEventCallback = (DatadogThreadPoolEventProfilerCallbackAsync, OnException),
-                    GCInfoTimerCallback = (DatadogGCInfoTimerCallbackAsync, OnException),
-                    ProcessInfoTimerCallback = (DatadogProcessInfoTimerCallbackAsync, OnException),
-                    ThreadInfoTimerCallback = (DatadogThreadInfoTimerCallbackAsync, OnException),
-                };
-                break;
-            case ClrTrackerType.Logger:
-                ProfilerTracker.Options = new ProfilerTrackerOptions
-                {
-                    ContentionEventCallback = (LoggerContentionEventProfilerCallbackAsync, OnException),
-                    GCEventCallback = (LoggerGCEventProfilerCallbackAsync, OnException),
-                    ThreadPoolEventCallback = (LoggerThreadPoolEventProfilerCallbackAsync, OnException),
-                    GCInfoTimerCallback = (LoggerGCInfoTimerCallbackAsync, OnException),
-                    ProcessInfoTimerCallback = (LoggerProcessInfoTimerCallbackAsync, OnException),
-                    ThreadInfoTimerCallback = (LoggerThreadInfoTimerCallbackAsync, OnException),
-                };
-                break;
-            default:
-                throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemeted.");
-        }
+            ClrTrackerType.Datadog => RegisterDatadogProfilerTrackerOptions(),
+            ClrTrackerType.Logger => RegisterLoggerProfilerTrackerOptions(),
+            ClrTrackerType.Custom when _options.CustomHandler is not null => ProfilerTracker.Options = new ProfilerTrackerOptions
+            {
+                ContentionEventCallback = (_options.CustomHandler.OnContentionEventAsync, _options.CustomHandler.OnException),
+                GCEventCallback = (_options.CustomHandler.OnGCEventAsync, _options.CustomHandler.OnException),
+                ThreadPoolEventCallback = (_options.CustomHandler.OnThreadPoolEventAsync, _options.CustomHandler.OnException),
+                GCInfoTimerCallback = (_options.CustomHandler.OnGCInfoTimerAsync, _options.CustomHandler.OnException),
+                ProcessInfoTimerCallback = (_options.CustomHandler.OnProcessInfoTimerAsync, _options.CustomHandler.OnException),
+                ThreadInfoTimerCallback = (_options.CustomHandler.OnThreadInfoTimerAsync, _options.CustomHandler.OnException),
+            },
+            ClrTrackerType.Custom when _options.CustomHandler is null => throw new ArgumentException($"{nameof(ClrTrackerType.Custom)}: {_options.CustomHandler} is null, you must set custom Handler."),
+            _ => throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemeted."),
+        };
     }
     public void StartTracker()
     {
@@ -78,171 +66,32 @@ public class ClrTracker
         _logger.LogDebug($"Cancel tracking {nameof(ClrTracker)}");
         ProfilerTracker.Current.Value.Cancel();
     }
-    private void OnException(Exception exception) => _logger.LogCritical(exception, exception.Message);
 
-    // Datadog
-
-    /// <summary>
-    /// Contention Event
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task DatadogContentionEventProfilerCallbackAsync(ContentionEventStatistics arg)
+    private ProfilerTrackerOptions RegisterDatadogProfilerTrackerOptions()
     {
-        DatadogTracing.ContentionEventStartEnd(arg);
-    }
-
-    /// <summary>
-    /// GC Event
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task DatadogGCEventProfilerCallbackAsync(GCEventStatistics arg)
-    {
-        if (arg.Type == GCEventType.GCStartEnd)
+        var datadogTrackerHandler = new DatadogTrackerCallbackHandler(_logger);
+        return new ProfilerTrackerOptions
         {
-            DatadogTracing.GcEventStartEnd(arg.GCStartEndStatistics);
-        }
-        else if (arg.Type == GCEventType.GCSuspend)
+            ContentionEventCallback = (datadogTrackerHandler.OnContentionEventAsync, datadogTrackerHandler.OnException),
+            GCEventCallback = (datadogTrackerHandler.OnGCEventAsync, datadogTrackerHandler.OnException),
+            ThreadPoolEventCallback = (datadogTrackerHandler.OnThreadPoolEventAsync, datadogTrackerHandler.OnException),
+            GCInfoTimerCallback = (datadogTrackerHandler.OnGCInfoTimerAsync, datadogTrackerHandler.OnException),
+            ProcessInfoTimerCallback = (datadogTrackerHandler.OnProcessInfoTimerAsync, datadogTrackerHandler.OnException),
+            ThreadInfoTimerCallback = (datadogTrackerHandler.OnThreadInfoTimerAsync, datadogTrackerHandler.OnException),
+        };
+    }
+
+    private ProfilerTrackerOptions RegisterLoggerProfilerTrackerOptions()
+    {
+        var loggerTrackerHandler = new LoggerTrackerCallbackHandler(_logger);
+        return new ProfilerTrackerOptions
         {
-            DatadogTracing.GcEventSuspend(arg.GCSuspendStatistics);
-        }
-    }
-
-    /// <summary>
-    /// ThreadPool Event
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task DatadogThreadPoolEventProfilerCallbackAsync(ThreadPoolEventStatistics arg)
-    {
-        if (arg.Type == ThreadPoolStatisticType.ThreadPoolWorkerStartStop)
-        {
-            DatadogTracing.ThreadPoolEventWorker(arg.ThreadPoolWorker);
-        }
-        else if (arg.Type == ThreadPoolStatisticType.ThreadPoolAdjustment)
-        {
-            DatadogTracing.ThreadPoolEventAdjustment(arg.ThreadPoolAdjustment);
-
-            if (arg.ThreadPoolAdjustment.Reason == 0x06)
-            {
-                // special handling for threadPool starvation. This is really critical for .NET (.NET Core) Apps.
-                DatadogTracing.ThreadPoolStarvationEventAdjustment(arg.ThreadPoolAdjustment);
-            }
-        }
-    }
-
-    /// <summary>
-    /// GCInfo
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task DatadogGCInfoTimerCallbackAsync(GCInfoStatistics arg)
-    {
-        DatadogTracing.GcInfoTimerGauge(arg);
-    }
-
-    /// <summary>
-    /// ProcessInfo
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task DatadogProcessInfoTimerCallbackAsync(ProcessInfoStatistics arg)
-    {
-        DatadogTracing.ProcessInfoTimerGauge(arg);
-    }
-
-    /// <summary>
-    /// ThreadInfo
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task DatadogThreadInfoTimerCallbackAsync(ThreadInfoStatistics arg)
-    {
-        DatadogTracing.ThreadInfoTimerGauge(arg);
-        var usingWorkerThreads = arg.MaxWorkerThreads - arg.AvailableWorkerThreads;
-    }
-
-    // Logger
-
-    /// <summary>
-    /// Contention Event
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task LoggerContentionEventProfilerCallbackAsync(ContentionEventStatistics arg)
-    {
-        LoggerTracing.ContentionEventStartEnd(arg, _logger);
-    }
-
-    /// <summary>
-    /// GC Event
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task LoggerGCEventProfilerCallbackAsync(GCEventStatistics arg)
-    {
-        if (arg.Type == GCEventType.GCStartEnd)
-        {
-            LoggerTracing.GcEventStartEnd(arg.GCStartEndStatistics, _logger);
-        }
-        else if (arg.Type == GCEventType.GCSuspend)
-        {
-            LoggerTracing.GcEventSuspend(arg.GCSuspendStatistics, _logger);
-        }
-    }
-
-    /// <summary>
-    /// ThreadPool Event
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task LoggerThreadPoolEventProfilerCallbackAsync(ThreadPoolEventStatistics arg)
-    {
-        if (arg.Type == ThreadPoolStatisticType.ThreadPoolWorkerStartStop)
-        {
-            LoggerTracing.ThreadPoolEventWorker(arg.ThreadPoolWorker, _logger);
-        }
-        else if (arg.Type == ThreadPoolStatisticType.ThreadPoolAdjustment)
-        {
-            LoggerTracing.ThreadPoolEventAdjustment(arg.ThreadPoolAdjustment, _logger);
-
-            if (arg.ThreadPoolAdjustment.Reason == 0x06)
-            {
-                // special handling for threadPool starvation. This is really critical for .NET (.NET Core) Apps.
-                LoggerTracing.ThreadPoolStarvationEventAdjustment(arg.ThreadPoolAdjustment, _logger);
-            }
-        }
-    }
-
-    /// <summary>
-    /// GCInfo
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task LoggerGCInfoTimerCallbackAsync(GCInfoStatistics arg)
-    {
-        LoggerTracing.GcInfoTimerGauge(arg, _logger);
-    }
-
-    /// <summary>
-    /// ProcessInfo
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task LoggerProcessInfoTimerCallbackAsync(ProcessInfoStatistics arg)
-    {
-        LoggerTracing.ProcessInfoTimerGauge(arg, _logger);
-    }
-
-    /// <summary>
-    /// ThreadInfo
-    /// </summary>
-    /// <param name="arg"></param>
-    /// <returns></returns>
-    private async Task LoggerThreadInfoTimerCallbackAsync(ThreadInfoStatistics arg)
-    {
-        LoggerTracing.ThreadInfoTimerGauge(arg, _logger);
-        var usingWorkerThreads = arg.MaxWorkerThreads - arg.AvailableWorkerThreads;
+            ContentionEventCallback = (loggerTrackerHandler.OnContentionEventAsync, loggerTrackerHandler.OnException),
+            GCEventCallback = (loggerTrackerHandler.OnGCEventAsync, loggerTrackerHandler.OnException),
+            ThreadPoolEventCallback = (loggerTrackerHandler.OnThreadPoolEventAsync, loggerTrackerHandler.OnException),
+            GCInfoTimerCallback = (loggerTrackerHandler.OnGCInfoTimerAsync, loggerTrackerHandler.OnException),
+            ProcessInfoTimerCallback = (loggerTrackerHandler.OnProcessInfoTimerAsync, loggerTrackerHandler.OnException),
+            ThreadInfoTimerCallback = (loggerTrackerHandler.OnThreadInfoTimerAsync, loggerTrackerHandler.OnException),
+        };
     }
 }
