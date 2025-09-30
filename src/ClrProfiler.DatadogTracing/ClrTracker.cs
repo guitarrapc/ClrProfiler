@@ -45,7 +45,7 @@ public class ClrTracker
                 ThreadInfoTimerCallback = (_options.CustomHandler.OnThreadInfoTimerAsync, _options.CustomHandler.OnException),
             },
             ClrTrackerType.Custom when _options.CustomHandler is null => throw new ArgumentException($"{nameof(ClrTrackerType.Custom)}: {_options.CustomHandler} is null, you must set custom Handler."),
-            _ => throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemeted."),
+            _ => throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemented."),
         };
     }
     public void StartTracker()
