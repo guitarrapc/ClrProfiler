@@ -20,7 +20,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: guitarrapc/actions/.github/actions/setup-dotnet@main
-      - name: dotnet build
-        run: dotnet build -c Release
-      - name: dotnet test
-        run: dotnet test --no-build -c Release --logger GitHubActions
+      - run: dotnet build -c Release
+      - run: dotnet test -c Release --no-build --logger GitHubActions --logger "console;verbosity=normal"
+      - run: dotnet pack -c Release
