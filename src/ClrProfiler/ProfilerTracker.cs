@@ -1,5 +1,4 @@
 using ClrProfiler.Statistics;
-using System.Diagnostics.CodeAnalysis;
 
 namespace ClrProfiler;
 
