@@ -492,6 +492,28 @@ public class EventListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task ContentionEventListenerTypedPayloadHotPathDoesNotAllocate()
+    {
+        using var listener = new TestableContentionEventListener(_ => Task.CompletedTask);
+        object?[] payload = [(byte)1, 0U, 123.5D];
+        var timeStamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var i = 0; i < 100; i++)
+        {
+            listener.ProcessEvent("ContentionStop_V1", timeStamp, payload);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 10_000; i++)
+        {
+            listener.ProcessEvent("ContentionStop_V1", timeStamp, payload);
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        await Assert.That(allocated).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task ThreadPoolEventListenerPreservesEveryTrackedEventAtChannelCapacity()
     {
         var actual = new List<ThreadPoolEventStatistics>(ChannelCapacity);
@@ -536,6 +558,31 @@ public class EventListenerDataIntegrityTest
             await Assert.That(worker.Type).IsEqualTo(ThreadPoolStatisticType.ThreadPoolWorkerStartStop);
             await Assert.That(worker.ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo((uint)(20 + i));
         }
+    }
+
+    [Test]
+    public async Task ThreadPoolEventListenerTypedPayloadHotPathDoesNotAllocate()
+    {
+        using var listener = new TestableThreadPoolEventListener(_ => Task.CompletedTask);
+        object?[] adjustmentPayload = [123.5D, 16U, 6U];
+        object?[] stopPayload = [15U];
+        var timeStamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var i = 0; i < 100; i++)
+        {
+            listener.ProcessEvent("ThreadPoolWorkerThreadAdjustmentAdjustment", timeStamp, adjustmentPayload);
+            listener.ProcessEvent("ThreadPoolWorkerThreadStop_V1", timeStamp, stopPayload);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 10_000; i++)
+        {
+            listener.ProcessEvent("ThreadPoolWorkerThreadAdjustmentAdjustment", timeStamp, adjustmentPayload);
+            listener.ProcessEvent("ThreadPoolWorkerThreadStop_V1", timeStamp, stopPayload);
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        await Assert.That(allocated).IsEqualTo(0);
     }
 
     private sealed class TestableGCEventListener(Func<GCEventStatistics, Task> onEventEmit, Action<Exception>? onEventError = null)

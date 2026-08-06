@@ -40,8 +40,8 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
             if (!string.IsNullOrWhiteSpace(eventName) && eventName.StartsWith("ContentionStop_", StringComparison.OrdinalIgnoreCase))
             {
                 long time = timeStamp.Ticks;
-                var flag = byte.Parse(payload?[0]?.ToString() ?? "0");
-                var durationNs = double.Parse(payload?[2]?.ToString() ?? "0");
+                var flag = ReadRequiredByte(payload, 0);
+                var durationNs = ReadRequiredDouble(payload, 2);
                 var stat = new ContentionEventStatistics(time, flag, durationNs);
 
                 // write to channel
@@ -52,6 +52,51 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
         {
             _onEventError?.Invoke(ex);
         }
+    }
+
+    private static byte ReadRequiredByte(IReadOnlyList<object?>? payload, int index)
+    {
+        if (payload is null || (uint)index >= (uint)payload.Count || payload[index] is null)
+        {
+            throw new InvalidDataException($"Required contention payload at index {index} is missing.");
+        }
+
+        return payload[index] switch
+        {
+            byte value => value,
+            sbyte value => checked((byte)value),
+            ushort value => checked((byte)value),
+            short value => checked((byte)value),
+            uint value => checked((byte)value),
+            int value => checked((byte)value),
+            ulong value => checked((byte)value),
+            long value => checked((byte)value),
+            _ => throw new InvalidDataException($"Contention payload at index {index} is not an integer."),
+        };
+    }
+
+    private static double ReadRequiredDouble(IReadOnlyList<object?>? payload, int index)
+    {
+        if (payload is null || (uint)index >= (uint)payload.Count || payload[index] is null)
+        {
+            throw new InvalidDataException($"Required contention payload at index {index} is missing.");
+        }
+
+        return payload[index] switch
+        {
+            double value => value,
+            float value => value,
+            decimal value => (double)value,
+            ulong value => value,
+            long value => value,
+            uint value => value,
+            int value => value,
+            ushort value => value,
+            short value => value,
+            byte value => value,
+            sbyte value => value,
+            _ => throw new InvalidDataException($"Contention payload at index {index} is not numeric."),
+        };
     }
 
     public async ValueTask OnReadResultAsync(CancellationToken cancellationToken = default)
