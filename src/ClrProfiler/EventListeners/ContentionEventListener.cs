@@ -1,5 +1,6 @@
 using ClrProfiler.Statistics;
 using System.Diagnostics.Tracing;
+using System.Globalization;
 using System.Threading.Channels;
 
 namespace ClrProfiler.EventListeners;
@@ -56,12 +57,18 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
 
     private static byte ReadRequiredByte(IReadOnlyList<object?>? payload, int index)
     {
-        if (payload is null || (uint)index >= (uint)payload.Count || payload[index] is null)
+        if (payload is null || (uint)index >= (uint)payload.Count)
         {
             throw new InvalidDataException($"Required contention payload at index {index} is missing.");
         }
 
-        return payload[index] switch
+        var payloadValue = payload[index];
+        if (payloadValue is null)
+        {
+            throw new InvalidDataException($"Required contention payload at index {index} is missing.");
+        }
+
+        return payloadValue switch
         {
             byte value => value,
             sbyte value => checked((byte)value),
@@ -71,18 +78,25 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
             int value => checked((byte)value),
             ulong value => checked((byte)value),
             long value => checked((byte)value),
+            string value => byte.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
             _ => throw new InvalidDataException($"Contention payload at index {index} is not an integer."),
         };
     }
 
     private static double ReadRequiredDouble(IReadOnlyList<object?>? payload, int index)
     {
-        if (payload is null || (uint)index >= (uint)payload.Count || payload[index] is null)
+        if (payload is null || (uint)index >= (uint)payload.Count)
         {
             throw new InvalidDataException($"Required contention payload at index {index} is missing.");
         }
 
-        return payload[index] switch
+        var payloadValue = payload[index];
+        if (payloadValue is null)
+        {
+            throw new InvalidDataException($"Required contention payload at index {index} is missing.");
+        }
+
+        return payloadValue switch
         {
             double value => value,
             float value => value,
@@ -95,6 +109,7 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
             short value => value,
             byte value => value,
             sbyte value => value,
+            string value => double.Parse(value, CultureInfo.InvariantCulture),
             _ => throw new InvalidDataException($"Contention payload at index {index} is not numeric."),
         };
     }
