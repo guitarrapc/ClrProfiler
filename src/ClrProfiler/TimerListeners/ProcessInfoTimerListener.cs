@@ -7,13 +7,12 @@ namespace ClrProfiler.TimerListeners;
 
 public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannelReader
 {
-    static int initializedCount;
-    static Timer? timer;
+    private Timer? _timer;
 
-    private static readonly Process _process = Process.GetCurrentProcess();
-    private static TimeSpan _oldCPUTime = TimeSpan.Zero;
-    private static DateTime _lastMonitorTime = DateTime.UtcNow;
-    private static double _cpu = 0;
+    private readonly Process _process = Process.GetCurrentProcess();
+    private TimeSpan _oldCPUTime;
+    private DateTime _lastMonitorTime;
+    private double _cpu = 0;
     private static readonly double RefreshRate = TimeSpan.FromSeconds(1).TotalMilliseconds;
 
     public ChannelReader<ProcessInfoStatistics>? Reader { get; set; }
@@ -37,6 +36,8 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
         _onEventError = onEventError;
         _dueTime = dueTime;
         _intervalPeriod = intervalPeriod;
+        _oldCPUTime = _process.TotalProcessorTime;
+        _lastMonitorTime = DateTime.UtcNow;
         _channel = Channel.CreateBounded<ProcessInfoStatistics>(new BoundedChannelOptions(50)
         {
             SingleWriter = true,
@@ -47,11 +48,7 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
 
     protected override void OnEventWritten()
     {
-        // allow only 1 execution
-        var count = Interlocked.Increment(ref initializedCount);
-        if (count != 1) return;
-
-        timer = new Timer(_ =>
+        _timer ??= new Timer(_ =>
         {
             if (!Enabled) return;
             _eventWritten?.Invoke();
@@ -60,8 +57,8 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
 
     public void Dispose()
     {
-        initializedCount = 0;
-        timer?.Dispose();
+        Interlocked.Exchange(ref _timer, null)?.Dispose();
+        _process.Dispose();
     }
 
     public async ValueTask OnReadResultAsync(CancellationToken cancellationToken)

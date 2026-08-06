@@ -7,8 +7,7 @@ namespace ClrProfiler.TimerListeners;
 
 public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReader
 {
-    static int initializedCount;
-    static Timer? timer;
+    private Timer? _timer;
 
     public ChannelReader<GCInfoStatistics>? Reader { get; set; }
 
@@ -50,11 +49,7 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
 
     protected override void OnEventWritten()
     {
-        // allow only 1 execution
-        var count = Interlocked.Increment(ref initializedCount);
-        if (count != 1) return;
-
-        timer = new Timer(_ =>
+        _timer ??= new Timer(_ =>
         {
             if (!Enabled) return;
             _eventWritten?.Invoke();
@@ -63,8 +58,7 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
 
     public void Dispose()
     {
-        initializedCount = 0;
-        timer?.Dispose();
+        Interlocked.Exchange(ref _timer, null)?.Dispose();
     }
 
     public async ValueTask OnReadResultAsync(CancellationToken cancellationToken)

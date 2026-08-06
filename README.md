@@ -32,7 +32,7 @@ var dogstatsdConfig = new StatsdConfig
 DogStatsd.Configure(dogstatsdConfig);
 
 // enable clr tracker
-var tracker = new ClrTracker(loggerFactory);
+using var tracker = new ClrTracker(loggerFactory);
 tracker.EnableTracker(); // required, enable clr tracker explicitly
 tracker.StartTracker();
 ```
@@ -45,7 +45,7 @@ If you want debug behaviour, use ClrTrackerType.Logger instead. This will log me
 
 ```cs
 // enable clr tracker
-var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
+using var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
 {
     TrackerType = ClrTrackerType.Logger
 });
@@ -120,7 +120,7 @@ public class MyCustomTrackerHandler : IClrTrackerCallbackHandler
 Use your custom handler by specifying `ClrTrackerType.Custom` and providing your handler implementation:
 
 ```cs
-var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
+using var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
 {
     TrackerType = ClrTrackerType.Custom,
     CustomHandler = new MyCustomTrackerHandler(metricsService)
