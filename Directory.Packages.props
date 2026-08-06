@@ -8,7 +8,7 @@
     <!-- Benchmarks -->
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <!-- ClrProfiler.DatadogTracing -->
-    <PackageVersion Include="DogStatsD-CSharp-Client" Version="8.0.0" />
+    <PackageVersion Include="DogStatsD-CSharp-Client" Version="9.2.1" />
     <PackageVersion Include="ZLogger" Version="2.5.10" />
     <!-- Tests -->
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="9.0.1" />
