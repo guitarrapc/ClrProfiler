@@ -152,7 +152,17 @@ Every event contributes to `Count` and `DurationNsSum`, so no duration is discar
 
 Aggregates are reset per dispatch. A single event's duration may be attributed to the dispatch immediately before the one carrying its count, so an individual value can be skewed by one event under concurrency. Totals across dispatches are exact.
 
-The Datadog and logger adapters project this as `startend_count` (counter, `Count`), `startend_duration_ns` (gauge, `DurationNsMax`), and `startend_duration_ns_sum` (counter, `DurationNsSum`). Divide the last by the first for the mean.
+A dispatch happens every time the reader drains, which is far more often than a metrics backend flushes. Contention metrics therefore only use statsd types that aggregate correctly over many submissions within one flush interval:
+
+| Metric | statsd type | Value | Why the type |
+| --- | --- | --- | --- |
+| `clr_diagnostics_event.contention.startend_count` | counter | `Count` | Counts add, so every dispatch is kept. |
+| `clr_diagnostics_event.contention.startend_duration_ns_sum` | counter | `DurationNsSum` | Sums add, so no duration is discarded. |
+| `clr_diagnostics_event.contention.startend_duration_ns_max` | histogram | `DurationNsMax` | The maximum of the submitted window maxima is the true maximum for the interval. |
+
+Read `startend_duration_ns_max.max` for the worst contention in an interval, and `startend_duration_ns_sum / startend_count` for the exact mean duration. The `.avg`, `.count`, and percentile series derived from the histogram describe window maxima rather than individual contentions, so do not read them as durations.
+
+A gauge is deliberately not used for any of these. A gauge keeps only the last value submitted within a flush interval, which would discard every aggregation window but one.
 
 ## Sandbox
 

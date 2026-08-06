@@ -9,9 +9,12 @@ public static class DatadogTracing
     public static void ContentionEventStartEnd(in ContentionEventStatistics statistics)
     {
         ref readonly var tags = ref MetricTags.GetContention(statistics.Flag);
+        // Counters and histograms are the only types that survive interval aggregation here: the
+        // listener emits an aggregation window whenever the reader drains, which is far more often
+        // than statsd flushes. A gauge would keep the last window and discard every other one.
         DogStatsd.Counter(MetricNames.Event.ContentionStartEndCount, statistics.Count, tags: tags.Values);
-        DogStatsd.Gauge(MetricNames.Event.ContentionStartEndDurationNs, statistics.DurationNsMax, tags: tags.Values);
         DogStatsd.Counter(MetricNames.Event.ContentionStartEndDurationNsSum, statistics.DurationNsSum, tags: tags.Values);
+        DogStatsd.Histogram(MetricNames.Event.ContentionStartEndDurationNsMax, statistics.DurationNsMax, tags: tags.Values);
     }
 
     // GCEvent

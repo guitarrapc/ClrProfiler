@@ -9,8 +9,8 @@ public static partial class LoggerTracing
     {
         ref readonly var tags = ref MetricTags.GetContention(statistics.Flag);
         LogLongMetric(logger, MetricNames.Event.ContentionStartEndCount, statistics.Count, tags.Text);
-        LogDoubleMetric(logger, MetricNames.Event.ContentionStartEndDurationNs, statistics.DurationNsMax, tags.Text);
         LogDoubleMetric(logger, MetricNames.Event.ContentionStartEndDurationNsSum, statistics.DurationNsSum, tags.Text);
+        LogDoubleMetric(logger, MetricNames.Event.ContentionStartEndDurationNsMax, statistics.DurationNsMax, tags.Text);
     }
 
     public static void GcEventStartEnd(in GCStartEndStatistics statistics, ILogger logger)

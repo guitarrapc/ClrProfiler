@@ -26,11 +26,17 @@ internal static class MetricNames
         /// <summary>Counter incremented by the aggregated contention count. Tags: <c>contention_type:0|1|unknown</c>.</summary>
         internal const string ContentionStartEndCount = "clr_diagnostics_event.contention.startend_count";
 
-        /// <summary>Gauge of the longest contention duration in nanoseconds within the aggregation window. Tags: <c>contention_type:0|1|unknown</c>.</summary>
-        internal const string ContentionStartEndDurationNs = "clr_diagnostics_event.contention.startend_duration_ns";
-
-        /// <summary>Counter incremented by the total contention duration in nanoseconds. Divide by <see cref="ContentionStartEndCount"/> for the mean. Tags: <c>contention_type:0|1|unknown</c>.</summary>
+        /// <summary>Counter incremented by the total contention duration in nanoseconds. Divide by <see cref="ContentionStartEndCount"/> for the mean duration. Tags: <c>contention_type:0|1|unknown</c>.</summary>
         internal const string ContentionStartEndDurationNsSum = "clr_diagnostics_event.contention.startend_duration_ns_sum";
+
+        /// <summary>
+        /// Histogram of the longest contention duration in nanoseconds per aggregation window. Read
+        /// the <c>.max</c> series: the maximum of the submitted window maxima is the true maximum for
+        /// the flush interval. The <c>.avg</c>, <c>.count</c>, and percentile series describe window
+        /// maxima rather than individual contentions, so they are not meaningful as durations.
+        /// Tags: <c>contention_type:0|1|unknown</c>.
+        /// </summary>
+        internal const string ContentionStartEndDurationNsMax = "clr_diagnostics_event.contention.startend_duration_ns_max";
 
         /// <summary>Counter. Tags: <c>gc_gen</c>, <c>gc_type</c>, and <c>gc_reason</c>.</summary>
         internal const string GcStartEndCount = "clr_diagnostics_event.gc.startend_count";
@@ -56,8 +62,8 @@ internal static class MetricNames
         private static readonly string[] Values =
         [
             ContentionStartEndCount,
-            ContentionStartEndDurationNs,
             ContentionStartEndDurationNsSum,
+            ContentionStartEndDurationNsMax,
             GcStartEndCount,
             GcStartEndDurationMs,
             GcSuspendObjectCount,

@@ -1,5 +1,8 @@
 using ClrProfiler.DatadogTracing;
+using ClrProfiler.Statistics;
 using StatsdClient;
+// The test namespace shadows the adapter namespace, so alias the static class explicitly.
+using Tracing = ClrProfiler.DatadogTracing.DatadogTracing;
 
 namespace CleProfiler.DatadogTracing.UnitTest;
 
@@ -45,6 +48,11 @@ public class DatadogTracingUnitTest
         tracker.EnableTracker();
         tracker.StartTracker();
 
+        // Contention aggregates are emitted once per reader drain, which happens far more often than
+        // statsd flushes, so the statsd type has to survive many submissions per interval. Emitted
+        // here rather than in its own test because DogStatsd.Configure is process-global state.
+        Tracing.ContentionEventStartEnd(new ContentionEventStatistics(1, 0, 3, 90D, 40D));
+
         // Allocate and GC
         while (!complete)
         {
@@ -67,6 +75,15 @@ public class DatadogTracingUnitTest
         await Assert.That(list).Contains(x => x.Contains("clr_diagnostics_event.gc.suspend_duration_ms"));
         await Assert.That(list).Contains(x => x.Contains("gc_gen:2,gc_type:0,gc_reason:induced"));
         await Assert.That(list).Contains(x => x.Contains("gc_suspend_reason:gc"));
+
+        // Counters add up across submissions, so no aggregation window is lost.
+        await Assert.That(list).Contains(x => x.Contains("clr_diagnostics_event.contention.startend_count:3|c|"));
+        await Assert.That(list).Contains(x => x.Contains("clr_diagnostics_event.contention.startend_duration_ns_sum:90|c|"));
+        // Histogram, not gauge: the agent keeps the maximum across every submission in the interval,
+        // so per-window maxima compose into a true interval maximum. A gauge would keep only the last
+        // window and discard the rest.
+        await Assert.That(list).Contains(x => x.Contains("clr_diagnostics_event.contention.startend_duration_ns_max:40|h|"));
+        await Assert.That(list).DoesNotContain(x => x.Contains("clr_diagnostics_event.contention.") && x.Contains("|g|"));
 
         tracker.StopTracker();
         cts.Cancel();

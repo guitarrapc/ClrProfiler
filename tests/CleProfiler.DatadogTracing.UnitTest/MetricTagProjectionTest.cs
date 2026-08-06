@@ -24,7 +24,7 @@ public class MetricTagProjectionTest
     }
 
     [Test]
-    public async Task ContentionEventStartEnd_ProjectsAggregatedCountMaxAndSum()
+    public async Task ContentionEventStartEnd_ProjectsAggregatedCountSumAndMax()
     {
         var logger = new CapturingLogger();
 
@@ -32,8 +32,8 @@ public class MetricTagProjectionTest
 
         await Assert.That(logger.Messages).Count().IsEqualTo(3);
         await Assert.That(logger.Messages[0]).Contains("startend_count: 3,");
-        await Assert.That(logger.Messages[1]).Contains("startend_duration_ns: 40,");
-        await Assert.That(logger.Messages[2]).Contains("startend_duration_ns_sum: 90,");
+        await Assert.That(logger.Messages[1]).Contains("startend_duration_ns_sum: 90,");
+        await Assert.That(logger.Messages[2]).Contains("startend_duration_ns_max: 40,");
     }
 
     [Test]
