@@ -1,0 +1,51 @@
+using ClrProfiler.DatadogTracing;
+
+namespace CleProfiler.DatadogTracing.UnitTest;
+
+public class MetricNamesTest
+{
+    [Test]
+    public async Task EventCatalog_ContainsEveryEmittedMetricOnce()
+    {
+        var actual = string.Join('\n', MetricNames.Event.All.ToArray());
+
+        await Assert.That(actual).IsEqualTo("""
+            clr_diagnostics_event.contention.startend_count
+            clr_diagnostics_event.contention.startend_duration_ns
+            clr_diagnostics_event.gc.startend_count
+            clr_diagnostics_event.gc.startend_duration_ms
+            clr_diagnostics_event.gc.suspend_object_count
+            clr_diagnostics_event.gc.suspend_duration_ms
+            clr_diagnostics_event.threadpool.available_workerthread_count
+            clr_diagnostics_event.threadpool.adjustment_avg_throughput
+            clr_diagnostics_event.threadpool.adjustment_new_workerthreads_count
+            """);
+    }
+
+    [Test]
+    public async Task TimerCatalog_ContainsEveryEmittedMetricOnce()
+    {
+        var actual = string.Join('\n', MetricNames.Timer.All.ToArray());
+
+        await Assert.That(actual).IsEqualTo("""
+            clr_diagnostics_timer.gc.heap_size_bytes
+            clr_diagnostics_timer.gc.total_allocation_bytes
+            clr_diagnostics_timer.gc.gc_count
+            clr_diagnostics_timer.gc.gc_size
+            clr_diagnostics_timer.gc.time_in_gc_percent
+            clr_diagnostics_timer.process.cpu
+            clr_diagnostics_timer.process.private_bytes
+            clr_diagnostics_timer.process.working_sets
+            clr_diagnostics_timer.thread.available_worker_threads
+            clr_diagnostics_timer.thread.available_completion_port_threads
+            clr_diagnostics_timer.thread.max_worker_threads
+            clr_diagnostics_timer.thread.max_completion_port_threads
+            clr_diagnostics_timer.thread.using_worker_threads
+            clr_diagnostics_timer.thread.using_completion_port_threads
+            clr_diagnostics_timer.thread.thread_count
+            clr_diagnostics_timer.thread.queue_length
+            clr_diagnostics_timer.thread.lock_contention_count
+            clr_diagnostics_timer.thread.completed_items_count
+            """);
+    }
+}
