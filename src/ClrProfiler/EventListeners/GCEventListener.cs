@@ -10,12 +10,17 @@ namespace ClrProfiler.EventListeners;
 /// </summary>
 public class GCEventListener : ProfileEventListenerBase, IChannelReader
 {
+    // A background GC can overlap a foreground GC, so GC start state must be
+    // correlated by the GC index carried by both GCStart and GCEnd. GC indices
+    // are sequential and the runtime cannot have this many collections active
+    // concurrently, making a fixed array sufficient without per-event allocation.
+    private const int GCStartStateCapacity = 64;
+
     private readonly Channel<GCEventStatistics> _channel;
     private readonly Func<GCEventStatistics, Task> _onEventEmit;
     private readonly Action<Exception> _onEventError;
-    long timeGCStart = 0;
-    uint reason = 0;
-    uint type = 0;
+    private readonly GCStartState[] _gcStartStates = new GCStartState[GCStartStateCapacity];
+    private readonly object _gcStartStatesLock = new();
 
     // suspend
     long suspendTimeGCStart = 0;
@@ -84,17 +89,41 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
             // NOTE: HeapStat will retrieve in GCInfoTimerListener
             if (eventName.StartsWith("GCStart_", StringComparison.OrdinalIgnoreCase)) // GCStart_V1 / V2 ...
             {
-                timeGCStart = timeStamp.Ticks;
-                reason = uint.Parse(payload?[2]?.ToString() ?? "0");
-                type = uint.Parse(payload?[3]?.ToString() ?? "0");
+                var gcIndex = ReadUInt32(payload, 0);
+                var startState = new GCStartState(
+                    gcIndex,
+                    ReadUInt32(payload, 3),
+                    ReadUInt32(payload, 2),
+                    timeStamp.Ticks);
+
+                lock (_gcStartStatesLock)
+                {
+                    _gcStartStates[GetGCStartStateSlot(gcIndex)] = startState;
+                }
             }
             else if (eventName.StartsWith("GCEnd_", StringComparison.OrdinalIgnoreCase)) // GCEnd_V1 / V2 ...
             {
                 long timeGCEnd = timeStamp.Ticks;
-                var gcIndex = uint.Parse(payload?[0]?.ToString() ?? "0");
-                var generation = uint.Parse(payload?[1]?.ToString() ?? "0");
-                var duration = (double)(timeGCEnd - timeGCStart) / 10.0 / 1000.0;
-                var stat = new GCStartEndStatistics(gcIndex, type, generation, reason, duration, timeGCStart, timeGCEnd);
+                var gcIndex = ReadUInt32(payload, 0);
+                var generation = ReadUInt32(payload, 1);
+                GCStartState startState;
+
+                lock (_gcStartStatesLock)
+                {
+                    var slot = GetGCStartStateSlot(gcIndex);
+                    startState = _gcStartStates[slot];
+                    if (!startState.Active || startState.Index != gcIndex)
+                    {
+                        // The listener may be enabled in the middle of a GC and
+                        // observe its end without having observed its start.
+                        return;
+                    }
+
+                    _gcStartStates[slot] = default;
+                }
+
+                var duration = (double)(timeGCEnd - startState.StartTime) / 10.0 / 1000.0;
+                var stat = new GCStartEndStatistics(gcIndex, startState.Type, generation, startState.Reason, duration, startState.StartTime, timeGCEnd);
 
                 // write to channel
                 _channel.Writer.TryWrite(new GCEventStatistics(GCEventType.GCStartEnd, stat, new()));
@@ -119,6 +148,39 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
         {
             _onEventError?.Invoke(ex);
         }
+    }
+
+    private static int GetGCStartStateSlot(uint gcIndex) => (int)(gcIndex % GCStartStateCapacity);
+
+    private static uint ReadUInt32(IReadOnlyList<object?>? payload, int index)
+    {
+        if (payload is null || (uint)index >= (uint)payload.Count)
+        {
+            return 0;
+        }
+
+        return payload[index] switch
+        {
+            uint value => value,
+            int value => checked((uint)value),
+            ushort value => value,
+            short value => checked((uint)value),
+            byte value => value,
+            sbyte value => checked((uint)value),
+            ulong value => checked((uint)value),
+            long value => checked((uint)value),
+            null => 0,
+            _ => Convert.ToUInt32(payload[index], System.Globalization.CultureInfo.InvariantCulture),
+        };
+    }
+
+    private readonly struct GCStartState(uint index, uint type, uint reason, long startTime)
+    {
+        public readonly uint Index = index;
+        public readonly uint Type = type;
+        public readonly uint Reason = reason;
+        public readonly long StartTime = startTime;
+        public readonly bool Active = true;
     }
 
     public async ValueTask OnReadResultAsync(CancellationToken cancellationToken = default)

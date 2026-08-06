@@ -64,6 +64,49 @@ public class EventListenerDataIntegrityTest
     }
 
     [Fact]
+    public async Task GCEventListenerCorrelatesOverlappingCollectionsByIndex()
+    {
+        var actual = new List<GCEventStatistics>(2);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == 2)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.ProcessEvent("GCStart_V2", origin, [100U, 2U, 4U, 1U]);
+        listener.ProcessEvent("GCStart_V2", origin.AddTicks(10_000), [101U, 0U, 0U, 0U]);
+        listener.ProcessEvent("GCEnd_V1", origin.AddTicks(15_000), [101U, 0U]);
+        listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [100U, 2U]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        Assert.Equal(2, actual.Count);
+
+        var foreground = actual[0].GCStartEndStatistics;
+        Assert.Equal(101U, foreground.Index);
+        Assert.Equal(0U, foreground.Type);
+        Assert.Equal(0U, foreground.Generation);
+        Assert.Equal(0U, foreground.Reason);
+        Assert.Equal(origin.AddTicks(10_000).Ticks, foreground.GCStartTime);
+        Assert.Equal(0.5, foreground.DurationMillsec);
+
+        var background = actual[1].GCStartEndStatistics;
+        Assert.Equal(100U, background.Index);
+        Assert.Equal(1U, background.Type);
+        Assert.Equal(2U, background.Generation);
+        Assert.Equal(4U, background.Reason);
+        Assert.Equal(origin.Ticks, background.GCStartTime);
+        Assert.Equal(5.0, background.DurationMillsec);
+    }
+
+    [Fact]
     public async Task ContentionEventListenerPreservesEveryEventAtChannelCapacity()
     {
         var actual = new List<ContentionEventStatistics>(ChannelCapacity);
