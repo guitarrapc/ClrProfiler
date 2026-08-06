@@ -30,6 +30,7 @@ public class MetricTagProjectionTest
 
         LoggerTracing.ContentionEventStartEnd(new ContentionEventStatistics(1, 0, 30, 3), logger);
 
+        await Assert.That(logger.Messages).Count().IsEqualTo(2);
         await Assert.That(logger.Messages[0]).Contains("startend_count: 3,");
         await Assert.That(logger.Messages[1]).Contains("startend_duration_ns: 30,");
     }
