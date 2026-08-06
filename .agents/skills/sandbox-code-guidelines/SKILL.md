@@ -7,8 +7,8 @@ description: Guidelines for ClrProfiler experiments and manual demonstrations us
 
 Use the existing sample applications for manual or exploratory work:
 
-- `src/ConsoleApp`: exercise the packaged Datadog adapter and local DogStatsD-style flow.
-- `src/CustomConsoleApp`: exercise `IClrTrackerCallbackHandler` and custom metric handling.
+- `sandbox/ConsoleApp`: exercise the packaged Datadog adapter and local DogStatsD-style flow.
+- `sandbox/CustomConsoleApp`: exercise `IClrTrackerCallbackHandler` and custom metric handling.
 
 Do not use `dotnet-script` or assume that `sandbox/DotnetFiles` exists. Prefer a focused xUnit test when the behavior can be verified deterministically.
 
@@ -19,8 +19,8 @@ Do not use `dotnet-script` or assume that `sandbox/DotnetFiles` exists. Prefer a
 3. Run the sample in Release mode from the repository root:
 
 ```powershell
-dotnet run -c Release --project src/ConsoleApp/ConsoleApp.csproj
-dotnet run -c Release --project src/CustomConsoleApp/CustomConsoleApp.csproj
+dotnet run -c Release --project sandbox/ConsoleApp/ConsoleApp.csproj
+dotnet run -c Release --project sandbox/CustomConsoleApp/CustomConsoleApp.csproj
 ```
 
 4. Convert confirmed behavior into the appropriate xUnit project before changing production code.
