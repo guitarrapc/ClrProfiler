@@ -16,11 +16,24 @@ public class MetricTagProjectionTest
 
         LoggerTracing.ContentionEventStartEnd(new ContentionEventStatistics(1, flag, 2.5), logger);
 
-        await Assert.That(logger.Messages).Count().IsEqualTo(2);
+        await Assert.That(logger.Messages).Count().IsEqualTo(3);
         foreach (var message in logger.Messages)
         {
             await Assert.That(message).Contains($"tags: contention_type:{flag}");
         }
+    }
+
+    [Test]
+    public async Task ContentionEventStartEnd_ProjectsAggregatedCountSumAndMax()
+    {
+        var logger = new CapturingLogger();
+
+        LoggerTracing.ContentionEventStartEnd(new ContentionEventStatistics(1, 0, 3, 90, 40), logger);
+
+        await Assert.That(logger.Messages).Count().IsEqualTo(3);
+        await Assert.That(logger.Messages[0]).Contains("startend_count: 3,");
+        await Assert.That(logger.Messages[1]).Contains("startend_duration_ns_sum: 90,");
+        await Assert.That(logger.Messages[2]).Contains("startend_duration_ns_max: 40,");
     }
 
     [Test]

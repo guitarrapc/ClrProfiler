@@ -1,74 +1,52 @@
 using ClrProfiler.DatadogTracing;
-using StatsdClient;
 
 namespace CleProfiler.DatadogTracing.UnitTest;
 
-[NotInParallel]
+[NotInParallel(DogStatsdWireFixture.SerializationKey)]
 public class DatadogTracingUnitTest
 {
+    private static readonly TimeSpan MetricTimeout = TimeSpan.FromSeconds(30);
+
     [Test]
-    public async Task DatadogTracingGCUniTest()
+    [ClassDataSource<DogStatsdWireFixture>(Shared = SharedType.PerTestSession)]
+    public async Task GcEventMetrics_ReachTheAgentWithExpectedNamesAndTags(DogStatsdWireFixture wire)
     {
-        using var cts = new CancellationTokenSource();
-        var logger = TestHelpers.CreateLogger<DatadogTracingUnitTest>();
-        var host = "127.0.0.1";
-        var port = 8125;
-        var tag = "app:ClrProfiler.DatadogTracing.UnitTest";
-        var complete = false;
-        var list = new List<string>();
+        var cancellationToken = TestContext.Current!.Execution.CancellationToken;
+        var capture = wire.StartCapture();
 
-        // server
-        var server = new TestHelpers.UdpServer(host, port)
-        {
-            OnRecieveMessage = (_, text) =>
-            {
-                if (!text.StartsWith("datadog.dogstatsd"))
-                {
-                    list.Add(text);
-                }
-            }
-        };
-        var serverTask = Task.Run(async () => await server.ListenAsync(cts.Token), cts.Token);
-
-        // client
-        var dogstatsdConfig = new StatsdConfig
-        {
-            StatsdServerName = host,
-            StatsdPort = port,
-            ConstantTags = new[] { tag },
-        };
-        DogStatsd.Configure(dogstatsdConfig);
-
-        // enable clr tracker
         using var loggerFactory = TestHelpers.CreateLoggerFactory();
-        var tracker = new ClrTracker(loggerFactory);
+        using var tracker = new ClrTracker(loggerFactory);
         tracker.EnableTracker();
         tracker.StartTracker();
 
-        // Allocate and GC
-        while (!complete)
+        string[] lines;
+        try
         {
-            TestHelpers.Allocate5K();
-            GC.Collect();
-            await Task.Delay(10);
-
-            if (list.Count >= 20)
-            {
-                complete = true;
-            }
+            // These metrics need real collections to happen, so keep allocating while waiting.
+            lines = await capture.WaitForAllAsync(
+                [
+                    "clr_diagnostics_event.gc.suspend_object_count",
+                    "clr_diagnostics_event.gc.suspend_duration_ms",
+                    "gc_gen:2,gc_type:0,gc_reason:induced",
+                    "gc_suspend_reason:gc",
+                ],
+                MetricTimeout,
+                cancellationToken,
+                static () =>
+                {
+                    TestHelpers.Allocate5K();
+                    GC.Collect();
+                    return Task.CompletedTask;
+                });
+        }
+        finally
+        {
+            tracker.StopTracker();
         }
 
-        //await Assert.That(output).IsEqualTo("clr_diagnostics_event.gc.startend_count:18|c|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced\nclr_diagnostics_event.gc.suspend_object_count:181|c|#app:ConsoleApp,gc_suspend_reason:gc\n");
-        foreach (var item in list)
+        foreach (var line in lines)
         {
-            await Assert.That(item).Contains(tag);
+            await Assert.That(line).Contains(DogStatsdWireFixture.ConstantTag);
         }
-        await Assert.That(list).Contains(x => x.Contains("clr_diagnostics_event.gc.suspend_object_count"));
-        await Assert.That(list).Contains(x => x.Contains("clr_diagnostics_event.gc.suspend_duration_ms"));
-        await Assert.That(list).Contains(x => x.Contains("gc_gen:2,gc_type:0,gc_reason:induced"));
-        await Assert.That(list).Contains(x => x.Contains("gc_suspend_reason:gc"));
-
-        tracker.StopTracker();
-        cts.Cancel();
     }
 }

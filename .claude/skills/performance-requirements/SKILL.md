@@ -40,15 +40,30 @@ Treat overhead added to the profiled process as part of ClrProfiler's correctnes
 
 ## Verify performance changes
 
-The repository currently has no committed benchmark project, so do not claim a numeric performance improvement from stopwatch timing or from the functional test suite.
+Do not claim a numeric performance improvement from stopwatch timing or from the functional test suite. Use the committed benchmark project at `src/ClrProfiler.Benchmarks`.
+
+`E2EBenchmarks` measures representative workloads with every listener disabled and enabled, driven by a `TrackingEnabled` parameter, so each benchmark reports the overhead the profiler adds:
+
+- `AllocationAndGc` — allocate 1 MiB and force a Gen0 collection
+- `Contention` — contended monitor across parallel operations
+- `ThreadPoolDispatch` — parallel ThreadPool dispatch
+
+It is configured with `MemoryDiagnoser` and `Job.ShortRun`, and uses `BenchmarkSwitcher`, so BenchmarkDotNet's own `--filter` argument selects benchmarks. The project multi-targets `net8.0`, `net9.0`, and `net10.0`, so a target framework must be given explicitly:
+
+```powershell
+dotnet run -c Release --project src/ClrProfiler.Benchmarks -f net9.0 -- --list flat
+dotnet run -c Release --project src/ClrProfiler.Benchmarks -f net9.0 -- --filter "*Contention*"
+```
 
 For a meaningful hot-path change:
 
 1. Run the relevant correctness and data-integrity tests first.
 2. Measure the old and new implementations with the same Release build, runtime, event payload, event count, warmup, and invocation method.
 3. Record throughput and allocated bytes. Also inspect Gen0 collections when allocation behavior changes.
-4. Add a focused BenchmarkDotNet project or benchmark only when repeatable performance gating is part of the task; keep it separate from the sample applications.
+4. Extend `src/ClrProfiler.Benchmarks` when an existing benchmark does not cover the changed path. Add a separate BenchmarkDotNet project only when a task needs isolated performance gating, and keep benchmarks out of the sample applications.
 5. Reject unexplained event loss, ordering changes, unbounded state, or allocation regressions even when mean time improves.
+
+An allocation assertion in the test suite is a complement to benchmarking, not a substitute, and it has its own trap: a measured loop left in tier-0 code is replaced mid-flight by an on-stack replacement transition that itself allocates on the executing thread. Put the measured loop in its own method marked `[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]` and run the same method for warmup, as `tests/CleProfiler.DatadogTracing.UnitTest/MetricTagAllocationTest.cs` does. Otherwise the result depends on test execution order.
 
 Always run the repository's Release build and tests after a performance-sensitive change:
 
