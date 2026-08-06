@@ -44,6 +44,14 @@ public class ProfilerTrackerOptions
 
 public class ProfilerTracker
 {
+    private enum TrackerState
+    {
+        NotStarted,
+        Running,
+        Stopped,
+        Cancelled,
+    }
+
     /// <summary>
     /// Singleton instance access.
     /// </summary>
@@ -55,12 +63,12 @@ public class ProfilerTracker
     public static ProfilerTrackerOptions Options { get; set; } = new ProfilerTrackerOptions();
 
     private readonly IProfiler[] profilerStats;
-    private int initializedNum;
+    private readonly Task?[] readerTasks;
+    private readonly object lifecycleLock = new();
+    private TrackerState state = TrackerState.NotStarted;
 
     private ProfilerTracker()
-    {
-        // list Stats
-        profilerStats = [
+        : this([
             // event
             new GCEventProfiler(Options.GCEventCallback.OnSuccess, Options.GCEventCallback.OnError),
             new ThreadPoolEventProfiler(Options.ThreadPoolEventCallback.OnSuccess, Options.ThreadPoolEventCallback.OnError),
@@ -69,7 +77,14 @@ public class ProfilerTracker
             new ThreadInfoTimerProfiler(Options.ThreadInfoTimerCallback.OnSuccess, Options.ThreadInfoTimerCallback.OnError, Options.TimerOption),
             new GCInfoTimerProfiler(Options.GCInfoTimerCallback.OnSuccess, Options.GCInfoTimerCallback.OnError, Options.TimerOption),
             new ProcessInfoTimerProfiler(Options.ProcessInfoTimerCallback.OnSuccess, Options.ProcessInfoTimerCallback.OnError, Options.TimerOption),
-        ];
+        ])
+    {
+    }
+
+    internal ProfilerTracker(IProfiler[] profilers)
+    {
+        profilerStats = profilers;
+        readerTasks = new Task?[profilers.Length];
     }
 
     /// <summary>
@@ -77,18 +92,28 @@ public class ProfilerTracker
     /// </summary>
     public void Start()
     {
-        // offer thread safe single access
-        Interlocked.Increment(ref initializedNum);
-        if (initializedNum != 1) return;
-
-        // reset initialization status if cancelled.
-        Options.CancellationTokenSource.Token.Register(() => initializedNum = 0);
-
-        foreach (var profile in profilerStats)
+        lock (lifecycleLock)
         {
-            profile.Start();
-            // FireAndForget
-            _ = profile.ReadResultAsync(Options.CancellationTokenSource.Token);
+            if (state == TrackerState.Running || state == TrackerState.Cancelled) return;
+
+            if (state == TrackerState.Stopped)
+            {
+                state = TrackerState.Running;
+                foreach (var profile in profilerStats)
+                {
+                    profile.Restart();
+                }
+                return;
+            }
+
+            state = TrackerState.Running;
+            for (var i = 0; i < profilerStats.Length; i++)
+            {
+                // Keep one reader alive until cancellation so Stop/Restart does not lose it.
+                var profile = profilerStats[i];
+                readerTasks[i] = profile.ReadResultAsync(Options.CancellationTokenSource.Token);
+                profile.Start();
+            }
         }
     }
     /// <summary>
@@ -96,11 +121,15 @@ public class ProfilerTracker
     /// </summary>
     public void Restart()
     {
-        if (initializedNum != 1) return;
-
-        foreach (var stat in profilerStats)
+        lock (lifecycleLock)
         {
-            stat.Restart();
+            if (state != TrackerState.Stopped) return;
+
+            state = TrackerState.Running;
+            foreach (var stat in profilerStats)
+            {
+                stat.Restart();
+            }
         }
     }
     /// <summary>
@@ -108,11 +137,15 @@ public class ProfilerTracker
     /// </summary>
     public void Stop()
     {
-        if (initializedNum != 1) return;
-
-        foreach (var stat in profilerStats)
+        lock (lifecycleLock)
         {
-            stat.Stop();
+            if (state != TrackerState.Running) return;
+
+            state = TrackerState.Stopped;
+            foreach (var stat in profilerStats)
+            {
+                stat.Stop();
+            }
         }
     }
 
@@ -121,7 +154,22 @@ public class ProfilerTracker
     /// </summary>
     public void Cancel()
     {
-        Options.CancellationTokenSource.Cancel();
+        CancellationTokenSource cancellationTokenSource;
+        lock (lifecycleLock)
+        {
+            if (state == TrackerState.Cancelled) return;
+
+            if (state == TrackerState.Running)
+            {
+                foreach (var stat in profilerStats)
+                {
+                    stat.Stop();
+                }
+            }
+            state = TrackerState.Cancelled;
+            cancellationTokenSource = Options.CancellationTokenSource;
+        }
+        cancellationTokenSource.Cancel();
     }
 
     /// <summary>
@@ -131,12 +179,16 @@ public class ProfilerTracker
     /// <param name="cts"></param>
     public bool Reset(CancellationTokenSource cts)
     {
-        if (Options.CancellationTokenSource.IsCancellationRequested)
+        lock (lifecycleLock)
         {
+            if (state != TrackerState.Cancelled) return false;
+            if (!Options.CancellationTokenSource.IsCancellationRequested) return false;
+            if (readerTasks.Any(task => task is not null && !task.IsCompleted)) return false;
+
             Options.CancellationTokenSource = cts;
+            state = TrackerState.NotStarted;
             return true;
         }
-        return false;
     }
 
     /// <summary>

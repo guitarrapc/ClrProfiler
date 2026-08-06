@@ -63,6 +63,13 @@ public class ClrTracker
         ProfilerTracker.Current.Value.Stop();
     }
 
+    public void RestartTracker()
+    {
+        if (!_enabled) return;
+        _logger.LogDebug($"Restart tracking {nameof(ClrTracker)}");
+        ProfilerTracker.Current.Value.Restart();
+    }
+
     public void CancelTracker()
     {
         if (!_enabled) return;

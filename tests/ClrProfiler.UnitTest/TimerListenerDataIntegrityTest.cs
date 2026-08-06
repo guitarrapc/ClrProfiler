@@ -14,13 +14,14 @@ public class TimerListenerDataIntegrityTest
     public async Task GCInfoTimerListenerPreservesEverySampleAtChannelCapacity()
     {
         var actual = new List<GCInfoStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
         TestableGCInfoTimerListener? listener = null;
         listener = new TestableGCInfoTimerListener(value =>
         {
             actual.Add(value);
             if (actual.Count == ChannelCapacity)
             {
-                listener!.DisableReading();
+                cts.Cancel();
             }
             return Task.CompletedTask;
         });
@@ -32,7 +33,6 @@ public class TimerListenerDataIntegrityTest
             }
 
             listener.EnableReading();
-            using var cts = new CancellationTokenSource(TestTimeout);
             await listener.OnReadResultAsync(cts.Token);
         }
 
@@ -52,13 +52,14 @@ public class TimerListenerDataIntegrityTest
     public async Task ProcessInfoTimerListenerPreservesEverySampleAtChannelCapacity()
     {
         var actual = new List<ProcessInfoStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
         TestableProcessInfoTimerListener? listener = null;
         listener = new TestableProcessInfoTimerListener(value =>
         {
             actual.Add(value);
             if (actual.Count == ChannelCapacity)
             {
-                listener!.DisableReading();
+                cts.Cancel();
             }
             return Task.CompletedTask;
         });
@@ -70,7 +71,6 @@ public class TimerListenerDataIntegrityTest
             }
 
             listener.EnableReading();
-            using var cts = new CancellationTokenSource(TestTimeout);
             await listener.OnReadResultAsync(cts.Token);
         }
 
@@ -88,13 +88,14 @@ public class TimerListenerDataIntegrityTest
     public async Task ThreadInfoTimerListenerPreservesEverySampleAtChannelCapacity()
     {
         var actual = new List<ThreadInfoStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
         TestableThreadInfoTimerListener? listener = null;
         listener = new TestableThreadInfoTimerListener(value =>
         {
             actual.Add(value);
             if (actual.Count == ChannelCapacity)
             {
-                listener!.DisableReading();
+                cts.Cancel();
             }
             return Task.CompletedTask;
         });
@@ -106,7 +107,6 @@ public class TimerListenerDataIntegrityTest
             }
 
             listener.EnableReading();
-            using var cts = new CancellationTokenSource(TestTimeout);
             await listener.OnReadResultAsync(cts.Token);
         }
 
