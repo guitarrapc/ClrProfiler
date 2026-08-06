@@ -12,16 +12,13 @@ public class ProfilerLifecycleTest
     [Fact]
     public void TrackerLifecycleTransitionsAreIdempotent()
     {
-        var originalOptions = ProfilerTracker.Options;
         using var firstCts = new CancellationTokenSource();
         using var secondCts = new CancellationTokenSource();
         var profiler = new RecordingProfiler();
-        var tracker = new ProfilerTracker([profiler]);
+        using var tracker = new ProfilerTracker([profiler], new ProfilerTrackerOptions { CancellationTokenSource = firstCts });
 
         try
         {
-            ProfilerTracker.Options = new ProfilerTrackerOptions { CancellationTokenSource = firstCts };
-
             tracker.Start();
             tracker.Start();
             Assert.Equal(1, profiler.StartCount);
@@ -54,8 +51,71 @@ public class ProfilerLifecycleTest
         finally
         {
             tracker.Cancel();
-            ProfilerTracker.Options = originalOptions;
         }
+    }
+
+    [Fact]
+    public void TrackersHaveIndependentStateAndCancellation()
+    {
+        using var firstCts = new CancellationTokenSource();
+        using var secondCts = new CancellationTokenSource();
+        var firstProfiler = new RecordingProfiler();
+        var secondProfiler = new RecordingProfiler();
+        using var firstTracker = new ProfilerTracker([firstProfiler], new ProfilerTrackerOptions { CancellationTokenSource = firstCts });
+        using var secondTracker = new ProfilerTracker([secondProfiler], new ProfilerTrackerOptions { CancellationTokenSource = secondCts });
+
+        firstTracker.Start();
+        secondTracker.Start();
+        firstTracker.Cancel();
+
+        Assert.True(firstCts.IsCancellationRequested);
+        Assert.False(secondCts.IsCancellationRequested);
+        Assert.False(firstProfiler.Enabled);
+        Assert.True(secondProfiler.Enabled);
+        Assert.Equal(1, firstProfiler.StartCount);
+        Assert.Equal(1, secondProfiler.StartCount);
+    }
+
+    [Fact]
+    public async Task TimerProfilersHaveIndependentTimers()
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        var firstSample = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondSample = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var timerOptions = (TimeSpan.FromMilliseconds(10), TimeSpan.FromDays(1));
+        using var firstProfiler = new ThreadInfoTimerProfiler(_ =>
+        {
+            firstSample.TrySetResult();
+            return Task.CompletedTask;
+        }, exception => firstSample.TrySetException(exception), timerOptions);
+        using var secondProfiler = new ThreadInfoTimerProfiler(_ =>
+        {
+            secondSample.TrySetResult();
+            return Task.CompletedTask;
+        }, exception => secondSample.TrySetException(exception), timerOptions);
+
+        var firstReader = firstProfiler.ReadResultAsync(cts.Token);
+        var secondReader = secondProfiler.ReadResultAsync(cts.Token);
+        firstProfiler.Start();
+        secondProfiler.Start();
+
+        await Task.WhenAll(firstSample.Task, secondSample.Task).WaitAsync(TestTimeout);
+
+        firstProfiler.Stop();
+        secondProfiler.Stop();
+        cts.Cancel();
+        await Task.WhenAll(firstReader, secondReader);
+    }
+
+    [Fact]
+    public void DisposedTimerListenerCannotCreateAnotherTimer()
+    {
+        var listener = new TestableThreadInfoTimerListener(_ => Task.CompletedTask);
+
+        listener.StartTimer();
+        listener.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(listener.StartTimer);
     }
 
     [Fact]
@@ -240,5 +300,6 @@ public class ProfilerLifecycleTest
         : ThreadInfoTimerListener(onEventEmit, onEventError ?? (exception => throw exception), TimeSpan.FromDays(1), TimeSpan.FromDays(1))
     {
         public void EnableReading() => Enabled = true;
+        public void StartTimer() => RunWithCallback(EventCreatedHandler, static () => { });
     }
 }

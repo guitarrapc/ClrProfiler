@@ -42,7 +42,7 @@ public class ProfilerTrackerOptions
     public (Func<ThreadInfoStatistics, Task> OnSuccess, Action<Exception> OnError) ThreadInfoTimerCallback { get; set; } = (stats => Task.CompletedTask, _ => { });
 }
 
-public class ProfilerTracker
+public class ProfilerTracker : IDisposable
 {
     private enum TrackerState
     {
@@ -50,39 +50,34 @@ public class ProfilerTracker
         Running,
         Stopped,
         Cancelled,
+        Disposed,
     }
 
-    /// <summary>
-    /// Singleton instance access.
-    /// </summary>
-    public static Lazy<ProfilerTracker> Current { get; } = new(() => new ProfilerTracker());
-
-    /// <summary>
-    /// Options for the tracker
-    /// </summary>
-    public static ProfilerTrackerOptions Options { get; set; } = new ProfilerTrackerOptions();
-
+    private readonly ProfilerTrackerOptions options;
     private readonly IProfiler[] profilerStats;
     private readonly Task?[] readerTasks;
     private readonly object lifecycleLock = new();
     private TrackerState state = TrackerState.NotStarted;
 
-    private ProfilerTracker()
-        : this([
-            // event
-            new GCEventProfiler(Options.GCEventCallback.OnSuccess, Options.GCEventCallback.OnError),
-            new ThreadPoolEventProfiler(Options.ThreadPoolEventCallback.OnSuccess, Options.ThreadPoolEventCallback.OnError),
-            new ContentionEventProfiler(Options.ContentionEventCallback.OnSuccess, Options.ContentionEventCallback.OnError),
-            // timer
-            new ThreadInfoTimerProfiler(Options.ThreadInfoTimerCallback.OnSuccess, Options.ThreadInfoTimerCallback.OnError, Options.TimerOption),
-            new GCInfoTimerProfiler(Options.GCInfoTimerCallback.OnSuccess, Options.GCInfoTimerCallback.OnError, Options.TimerOption),
-            new ProcessInfoTimerProfiler(Options.ProcessInfoTimerCallback.OnSuccess, Options.ProcessInfoTimerCallback.OnError, Options.TimerOption),
-        ])
+    public ProfilerTracker(ProfilerTrackerOptions? options = null)
     {
+        this.options = options ?? new ProfilerTrackerOptions();
+        profilerStats = [
+            // event
+            new GCEventProfiler(this.options.GCEventCallback.OnSuccess, this.options.GCEventCallback.OnError),
+            new ThreadPoolEventProfiler(this.options.ThreadPoolEventCallback.OnSuccess, this.options.ThreadPoolEventCallback.OnError),
+            new ContentionEventProfiler(this.options.ContentionEventCallback.OnSuccess, this.options.ContentionEventCallback.OnError),
+            // timer
+            new ThreadInfoTimerProfiler(this.options.ThreadInfoTimerCallback.OnSuccess, this.options.ThreadInfoTimerCallback.OnError, this.options.TimerOption),
+            new GCInfoTimerProfiler(this.options.GCInfoTimerCallback.OnSuccess, this.options.GCInfoTimerCallback.OnError, this.options.TimerOption),
+            new ProcessInfoTimerProfiler(this.options.ProcessInfoTimerCallback.OnSuccess, this.options.ProcessInfoTimerCallback.OnError, this.options.TimerOption),
+        ];
+        readerTasks = new Task?[profilerStats.Length];
     }
 
-    internal ProfilerTracker(IProfiler[] profilers)
+    internal ProfilerTracker(IProfiler[] profilers, ProfilerTrackerOptions? options = null)
     {
+        this.options = options ?? new ProfilerTrackerOptions();
         profilerStats = profilers;
         readerTasks = new Task?[profilers.Length];
     }
@@ -94,7 +89,7 @@ public class ProfilerTracker
     {
         lock (lifecycleLock)
         {
-            if (state == TrackerState.Running || state == TrackerState.Cancelled) return;
+            if (state is TrackerState.Running or TrackerState.Cancelled or TrackerState.Disposed) return;
 
             if (state == TrackerState.Stopped)
             {
@@ -111,7 +106,7 @@ public class ProfilerTracker
             {
                 // Keep one reader alive until cancellation so Stop/Restart does not lose it.
                 var profile = profilerStats[i];
-                readerTasks[i] = profile.ReadResultAsync(Options.CancellationTokenSource.Token);
+                readerTasks[i] = profile.ReadResultAsync(options.CancellationTokenSource.Token);
                 profile.Start();
             }
         }
@@ -157,7 +152,7 @@ public class ProfilerTracker
         CancellationTokenSource cancellationTokenSource;
         lock (lifecycleLock)
         {
-            if (state == TrackerState.Cancelled) return;
+            if (state is TrackerState.Cancelled or TrackerState.Disposed) return;
 
             if (state == TrackerState.Running)
             {
@@ -167,7 +162,7 @@ public class ProfilerTracker
                 }
             }
             state = TrackerState.Cancelled;
-            cancellationTokenSource = Options.CancellationTokenSource;
+            cancellationTokenSource = options.CancellationTokenSource;
         }
         cancellationTokenSource.Cancel();
     }
@@ -182,10 +177,10 @@ public class ProfilerTracker
         lock (lifecycleLock)
         {
             if (state != TrackerState.Cancelled) return false;
-            if (!Options.CancellationTokenSource.IsCancellationRequested) return false;
+            if (!options.CancellationTokenSource.IsCancellationRequested) return false;
             if (readerTasks.Any(task => task is not null && !task.IsCompleted)) return false;
 
-            Options.CancellationTokenSource = cts;
+            options.CancellationTokenSource = cts;
             state = TrackerState.NotStarted;
             return true;
         }
@@ -200,6 +195,31 @@ public class ProfilerTracker
         foreach (var profiler in profilerStats)
         {
             action((profiler.Name, profiler.Enabled));
+        }
+    }
+
+    public void Dispose()
+    {
+        CancellationTokenSource cancellationTokenSource;
+        lock (lifecycleLock)
+        {
+            if (state == TrackerState.Disposed) return;
+
+            if (state == TrackerState.Running)
+            {
+                foreach (var profiler in profilerStats)
+                {
+                    profiler.Stop();
+                }
+            }
+            state = TrackerState.Disposed;
+            cancellationTokenSource = options.CancellationTokenSource;
+        }
+
+        cancellationTokenSource.Cancel();
+        foreach (var profiler in profilerStats)
+        {
+            profiler.Dispose();
         }
     }
 }

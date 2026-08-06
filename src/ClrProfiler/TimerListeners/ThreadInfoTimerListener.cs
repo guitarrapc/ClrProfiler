@@ -6,8 +6,9 @@ namespace ClrProfiler.TimerListeners;
 
 public class ThreadInfoTimerListener : TimerListenerBase, IDisposable, IChannelReader
 {
-    static int initializedCount;
-    static Timer? timer;
+    private Timer? _timer;
+    private readonly object _timerLock = new();
+    private bool _disposed;
 
     public ChannelReader<ThreadInfoStatistics>? Reader { get; set; }
 
@@ -40,20 +41,38 @@ public class ThreadInfoTimerListener : TimerListenerBase, IDisposable, IChannelR
 
     protected override void OnEventWritten()
     {
-        // allow only 1 execution
-        var count = Interlocked.Increment(ref initializedCount);
-        if (count != 1) return;
-
-        timer = new Timer(_ =>
+        lock (_timerLock)
         {
-            if (!Enabled) return;
+            if (_disposed)
+            {
+                Enabled = false;
+                throw new ObjectDisposedException(GetType().FullName);
+            }
+            _timer ??= new Timer(static state => ((ThreadInfoTimerListener)state!).OnTimer(), this, _dueTime, _intervalPeriod);
+        }
+    }
+
+    private void OnTimer()
+    {
+        lock (_timerLock)
+        {
+            if (_disposed || !Enabled) return;
             _eventWritten?.Invoke();
-        }, null, _dueTime, _intervalPeriod);
+        }
     }
 
     public void Dispose()
     {
-        initializedCount = 0;
+        Timer? timer;
+        lock (_timerLock)
+        {
+            if (_disposed) return;
+
+            _disposed = true;
+            Enabled = false;
+            timer = _timer;
+            _timer = null;
+        }
         timer?.Dispose();
     }
 

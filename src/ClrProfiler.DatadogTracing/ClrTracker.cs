@@ -2,12 +2,14 @@ using Microsoft.Extensions.Logging;
 
 namespace ClrProfiler.DatadogTracing;
 
-public class ClrTracker
+public class ClrTracker : IDisposable
 {
-    private static int singleAccess = 0;
     private readonly ILogger<ClrTracker> _logger;
     private readonly ClrTrackerOptions _options;
+    private readonly object _lifecycleLock = new();
+    private ProfilerTracker? _profilerTracker;
     private bool _enabled;
+    private bool _disposed;
 
     public ClrTrackerType TrackerType => _options.TrackerType;
 
@@ -23,58 +25,77 @@ public class ClrTracker
 
     public void EnableTracker()
     {
-        // Single access guard
-        Interlocked.Increment(ref singleAccess);
-        if (singleAccess != 1) return;
-
-        _logger.LogDebug($"Enable {nameof(ClrTracker)}");
-        _enabled = true;
-
-        // InProcess tracker
-        ProfilerTracker.Options = _options.TrackerType switch
+        lock (_lifecycleLock)
         {
-            ClrTrackerType.Datadog => RegisterDatadogProfilerTrackerOptions(),
-            ClrTrackerType.Logger => RegisterLoggerProfilerTrackerOptions(),
-            ClrTrackerType.Custom when _options.CustomHandler is not null => new ProfilerTrackerOptions
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_enabled) return;
+
+            _logger.LogDebug($"Enable {nameof(ClrTracker)}");
+
+            var profilerOptions = _options.TrackerType switch
             {
-                ContentionEventCallback = (_options.CustomHandler.OnContentionEventAsync, _options.CustomHandler.OnException),
-                GCEventCallback = (_options.CustomHandler.OnGCEventAsync, _options.CustomHandler.OnException),
-                ThreadPoolEventCallback = (_options.CustomHandler.OnThreadPoolEventAsync, _options.CustomHandler.OnException),
-                GCInfoTimerCallback = (_options.CustomHandler.OnGCInfoTimerAsync, _options.CustomHandler.OnException),
-                ProcessInfoTimerCallback = (_options.CustomHandler.OnProcessInfoTimerAsync, _options.CustomHandler.OnException),
-                ThreadInfoTimerCallback = (_options.CustomHandler.OnThreadInfoTimerAsync, _options.CustomHandler.OnException),
-            },
-            ClrTrackerType.Custom when _options.CustomHandler is null => throw new ArgumentException($"{nameof(ClrTrackerType.Custom)}: {_options.CustomHandler} is null, you must set custom Handler."),
-            _ => throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemented."),
-        };
+                ClrTrackerType.Datadog => RegisterDatadogProfilerTrackerOptions(),
+                ClrTrackerType.Logger => RegisterLoggerProfilerTrackerOptions(),
+                ClrTrackerType.Custom when _options.CustomHandler is not null => new ProfilerTrackerOptions
+                {
+                    ContentionEventCallback = (_options.CustomHandler.OnContentionEventAsync, _options.CustomHandler.OnException),
+                    GCEventCallback = (_options.CustomHandler.OnGCEventAsync, _options.CustomHandler.OnException),
+                    ThreadPoolEventCallback = (_options.CustomHandler.OnThreadPoolEventAsync, _options.CustomHandler.OnException),
+                    GCInfoTimerCallback = (_options.CustomHandler.OnGCInfoTimerAsync, _options.CustomHandler.OnException),
+                    ProcessInfoTimerCallback = (_options.CustomHandler.OnProcessInfoTimerAsync, _options.CustomHandler.OnException),
+                    ThreadInfoTimerCallback = (_options.CustomHandler.OnThreadInfoTimerAsync, _options.CustomHandler.OnException),
+                },
+                ClrTrackerType.Custom when _options.CustomHandler is null => throw new ArgumentException($"{nameof(ClrTrackerType.Custom)}: {_options.CustomHandler} is null, you must set custom Handler."),
+                _ => throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemented."),
+            };
+
+            _profilerTracker = new ProfilerTracker(profilerOptions);
+            _enabled = true;
+        }
     }
 
     public void StartTracker()
     {
-        if (!_enabled) return;
-        _logger.LogDebug($"Start tracking {nameof(ClrTracker)}");
-        ProfilerTracker.Current.Value.Start();
+        lock (_lifecycleLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_enabled) return;
+            _logger.LogDebug($"Start tracking {nameof(ClrTracker)}");
+            _profilerTracker!.Start();
+        }
     }
 
     public void StopTracker()
     {
-        if (!_enabled) return;
-        _logger.LogDebug($"Stop tracking {nameof(ClrTracker)}");
-        ProfilerTracker.Current.Value.Stop();
+        lock (_lifecycleLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_enabled) return;
+            _logger.LogDebug($"Stop tracking {nameof(ClrTracker)}");
+            _profilerTracker!.Stop();
+        }
     }
 
     public void RestartTracker()
     {
-        if (!_enabled) return;
-        _logger.LogDebug($"Restart tracking {nameof(ClrTracker)}");
-        ProfilerTracker.Current.Value.Restart();
+        lock (_lifecycleLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_enabled) return;
+            _logger.LogDebug($"Restart tracking {nameof(ClrTracker)}");
+            _profilerTracker!.Restart();
+        }
     }
 
     public void CancelTracker()
     {
-        if (!_enabled) return;
-        _logger.LogDebug($"Cancel tracking {nameof(ClrTracker)}");
-        ProfilerTracker.Current.Value.Cancel();
+        lock (_lifecycleLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_enabled) return;
+            _logger.LogDebug($"Cancel tracking {nameof(ClrTracker)}");
+            _profilerTracker!.Cancel();
+        }
     }
 
     private ProfilerTrackerOptions RegisterDatadogProfilerTrackerOptions()
@@ -103,5 +124,18 @@ public class ClrTracker
             ProcessInfoTimerCallback = (loggerTrackerHandler.OnProcessInfoTimerAsync, loggerTrackerHandler.OnException),
             ThreadInfoTimerCallback = (loggerTrackerHandler.OnThreadInfoTimerAsync, loggerTrackerHandler.OnException),
         };
+    }
+
+    public void Dispose()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_disposed) return;
+
+            _profilerTracker?.Dispose();
+            _profilerTracker = null;
+            _enabled = false;
+            _disposed = true;
+        }
     }
 }

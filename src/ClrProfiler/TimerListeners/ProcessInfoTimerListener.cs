@@ -7,13 +7,14 @@ namespace ClrProfiler.TimerListeners;
 
 public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannelReader
 {
-    static int initializedCount;
-    static Timer? timer;
+    private Timer? _timer;
+    private readonly object _timerLock = new();
+    private bool _disposed;
 
-    private static readonly Process _process = Process.GetCurrentProcess();
-    private static TimeSpan _oldCPUTime = TimeSpan.Zero;
-    private static DateTime _lastMonitorTime = DateTime.UtcNow;
-    private static double _cpu = 0;
+    private readonly Process _process = Process.GetCurrentProcess();
+    private TimeSpan _oldCPUTime;
+    private DateTime _lastMonitorTime;
+    private double _cpu = 0;
     private static readonly double RefreshRate = TimeSpan.FromSeconds(1).TotalMilliseconds;
 
     public ChannelReader<ProcessInfoStatistics>? Reader { get; set; }
@@ -37,6 +38,8 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
         _onEventError = onEventError;
         _dueTime = dueTime;
         _intervalPeriod = intervalPeriod;
+        _oldCPUTime = _process.TotalProcessorTime;
+        _lastMonitorTime = DateTime.UtcNow;
         _channel = Channel.CreateBounded<ProcessInfoStatistics>(new BoundedChannelOptions(50)
         {
             SingleWriter = true,
@@ -47,21 +50,40 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
 
     protected override void OnEventWritten()
     {
-        // allow only 1 execution
-        var count = Interlocked.Increment(ref initializedCount);
-        if (count != 1) return;
-
-        timer = new Timer(_ =>
+        lock (_timerLock)
         {
-            if (!Enabled) return;
+            if (_disposed)
+            {
+                Enabled = false;
+                throw new ObjectDisposedException(GetType().FullName);
+            }
+            _timer ??= new Timer(static state => ((ProcessInfoTimerListener)state!).OnTimer(), this, _dueTime, _intervalPeriod);
+        }
+    }
+
+    private void OnTimer()
+    {
+        lock (_timerLock)
+        {
+            if (_disposed || !Enabled) return;
             _eventWritten?.Invoke();
-        }, null, _dueTime, _intervalPeriod);
+        }
     }
 
     public void Dispose()
     {
-        initializedCount = 0;
+        Timer? timer;
+        lock (_timerLock)
+        {
+            if (_disposed) return;
+
+            _disposed = true;
+            Enabled = false;
+            timer = _timer;
+            _timer = null;
+        }
         timer?.Dispose();
+        _process.Dispose();
     }
 
     public async ValueTask OnReadResultAsync(CancellationToken cancellationToken)
