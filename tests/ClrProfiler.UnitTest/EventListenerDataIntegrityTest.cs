@@ -13,13 +13,14 @@ public class EventListenerDataIntegrityTest
     public async Task GCEventListenerPreservesEveryEventAtChannelCapacity()
     {
         var actual = new List<GCEventStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
         TestableGCEventListener? listener = null;
         listener = new TestableGCEventListener(value =>
         {
             actual.Add(value);
             if (actual.Count == ChannelCapacity)
             {
-                listener!.DisableReading();
+                cts.Cancel();
             }
             return Task.CompletedTask;
         });
@@ -40,7 +41,6 @@ public class EventListenerDataIntegrityTest
             }
 
             listener.EnableReading();
-            using var cts = new CancellationTokenSource(TestTimeout);
             await listener.OnReadResultAsync(cts.Token);
         }
 
@@ -67,13 +67,14 @@ public class EventListenerDataIntegrityTest
     public async Task ContentionEventListenerPreservesEveryEventAtChannelCapacity()
     {
         var actual = new List<ContentionEventStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
         TestableContentionEventListener? listener = null;
         listener = new TestableContentionEventListener(value =>
         {
             actual.Add(value);
             if (actual.Count == ChannelCapacity)
             {
-                listener!.DisableReading();
+                cts.Cancel();
             }
             return Task.CompletedTask;
         });
@@ -86,7 +87,6 @@ public class EventListenerDataIntegrityTest
             }
 
             listener.EnableReading();
-            using var cts = new CancellationTokenSource(TestTimeout);
             await listener.OnReadResultAsync(cts.Token);
         }
 
@@ -102,13 +102,14 @@ public class EventListenerDataIntegrityTest
     public async Task ThreadPoolEventListenerPreservesEveryTrackedEventAtChannelCapacity()
     {
         var actual = new List<ThreadPoolEventStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
         TestableThreadPoolEventListener? listener = null;
         listener = new TestableThreadPoolEventListener(value =>
         {
             actual.Add(value);
             if (actual.Count == ChannelCapacity)
             {
-                listener!.DisableReading();
+                cts.Cancel();
             }
             return Task.CompletedTask;
         });
@@ -126,7 +127,6 @@ public class EventListenerDataIntegrityTest
             listener.ProcessEvent("ThreadPoolWorkerThreadWait", origin, []);
 
             listener.EnableReading();
-            using var cts = new CancellationTokenSource(TestTimeout);
             await listener.OnReadResultAsync(cts.Token);
         }
 

@@ -6,7 +6,7 @@ namespace ClrProfiler.UnitTest;
 public class GcProfilerUnitTest
 {
     [Fact, TestPriority(0)]
-    public void GCInfoTimerProfilerTest()
+    public async Task GCInfoTimerProfilerTest()
     {
         var before = GC.GetTotalAllocatedBytes(true);
         using var cts = new CancellationTokenSource();
@@ -35,7 +35,7 @@ public class GcProfilerUnitTest
         // RunProfile
         var before2 = GC.GetTotalAllocatedBytes(true);
         profiler.Start();
-        _ = profiler.ReadResultAsync(cts.Token);
+        var readerTask = profiler.ReadResultAsync(cts.Token);
         while (!complete)
         {
             Thread.Sleep(50);
@@ -60,7 +60,6 @@ public class GcProfilerUnitTest
 
         // 1
         profiler.Start();
-        _ = profiler.ReadResultAsync(cts.Token);
         GC.Collect(2, GCCollectionMode.Forced, true, true);
         gen0GCCount++;
         gen1GCCount++;
@@ -79,7 +78,6 @@ public class GcProfilerUnitTest
 
         // 2
         profiler.Start();
-        _ = profiler.ReadResultAsync(cts.Token);
         GC.Collect(2, GCCollectionMode.Forced, true, true);
         gen0GCCount++;
         gen1GCCount++;
@@ -97,5 +95,6 @@ public class GcProfilerUnitTest
         //Assert.Equal(24, actual.Gen0Size);
 
         cts.Cancel();
+        await readerTask;
     }
 }

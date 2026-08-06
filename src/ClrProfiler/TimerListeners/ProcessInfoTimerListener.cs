@@ -66,16 +66,29 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
 
     public async ValueTask OnReadResultAsync(CancellationToken cancellationToken)
     {
-        // read from channel
-        while (Enabled && await _channel.Reader.WaitToReadAsync(cancellationToken))
+        try
         {
-            while (Enabled && _channel.Reader.TryRead(out var value))
+            // Keep the reader alive across Stop/Restart. Cancellation owns its lifetime.
+            while (await _channel.Reader.WaitToReadAsync(cancellationToken))
             {
-                if (_onEventEmit != null)
+                while (_channel.Reader.TryRead(out var value))
                 {
-                    await _onEventEmit.Invoke(value);
+                    if (_onEventEmit != null)
+                    {
+                        try
+                        {
+                            await _onEventEmit.Invoke(value);
+                        }
+                        catch (Exception ex)
+                        {
+                            _onEventError.Invoke(ex);
+                        }
+                    }
                 }
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
     }
 
