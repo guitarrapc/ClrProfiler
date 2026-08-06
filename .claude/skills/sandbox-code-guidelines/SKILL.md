@@ -1,14 +1,14 @@
 ---
 name: sandbox-code-guidelines
-description: Guidelines for ClrProfiler experiments and manual demonstrations using `src/SandboxConsoleApp` and `src/SandboxCustomConsoleApp`. Use for exploratory CLR event generation, timer sampling, lifecycle checks, custom callback handlers, console or Datadog metric inspection, and small performance probes that are not yet production tests.
+description: Guidelines for ClrProfiler experiments and manual demonstrations using `src/ConsoleApp` and `src/CustomConsoleApp`. Use for exploratory CLR event generation, timer sampling, lifecycle checks, custom callback handlers, console or Datadog metric inspection, and small performance probes that are not yet production tests.
 ---
 
 # Sandbox Code Guidelines
 
 Use the existing sample applications for manual or exploratory work:
 
-- `src/SandboxConsoleApp`: exercise the packaged Datadog adapter and local DogStatsD-style flow.
-- `src/SandboxCustomConsoleApp`: exercise `IClrTrackerCallbackHandler` and custom metric handling.
+- `src/ConsoleApp`: exercise the packaged Datadog adapter and local DogStatsD-style flow.
+- `src/CustomConsoleApp`: exercise `IClrTrackerCallbackHandler` and custom metric handling.
 
 Do not use `dotnet-script` or assume that `sandbox/DotnetFiles` exists. Prefer a focused xUnit test when the behavior can be verified deterministically.
 
@@ -19,8 +19,8 @@ Do not use `dotnet-script` or assume that `sandbox/DotnetFiles` exists. Prefer a
 3. Run the sample in Release mode from the repository root:
 
 ```powershell
-dotnet run -c Release --project src/SandboxConsoleApp/SandboxConsoleApp.csproj
-dotnet run -c Release --project src/SandboxCustomConsoleApp/SandboxCustomConsoleApp.csproj
+dotnet run -c Release --project src/ConsoleApp/ConsoleApp.csproj
+dotnet run -c Release --project src/CustomConsoleApp/CustomConsoleApp.csproj
 ```
 
 4. Convert confirmed behavior into the appropriate xUnit project before changing production code.

@@ -55,7 +55,7 @@ static ClrTracker UseDatadogTracker(ILoggerFactory loggerFactory, string host, i
     {
         StatsdServerName = host,
         StatsdPort = port,
-        ConstantTags = [$"app:SandboxConsoleApp"],
+        ConstantTags = [$"app:ConsoleApp"],
     };
     DogStatsd.Configure(dogstatsdConfig);
 

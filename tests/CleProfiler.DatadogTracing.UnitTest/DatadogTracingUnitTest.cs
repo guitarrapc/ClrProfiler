@@ -57,7 +57,7 @@ public class DatadogTracingUnitTest
             }
         }
 
-        //Assert.Equal("clr_diagnostics_event.gc.startend_count:18|c|#app:SandboxConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced\nclr_diagnostics_event.gc.suspend_object_count:181|c|#app:SandboxConsoleApp,gc_suspend_reason:gc\n", output);
+        //Assert.Equal("clr_diagnostics_event.gc.startend_count:18|c|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced\nclr_diagnostics_event.gc.suspend_object_count:181|c|#app:ConsoleApp,gc_suspend_reason:gc\n", output);
         foreach (var item in list)
         {
             Assert.Contains(tag, item);

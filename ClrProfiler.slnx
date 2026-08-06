@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/sandbox/">
-    <Project Path="src/SandboxConsoleApp/SandboxConsoleApp.csproj" />
-    <Project Path="src/SandboxCustomConsoleApp/SandboxCustomConsoleApp.csproj" />
+    <Project Path="sandbox/ConsoleApp/ConsoleApp.csproj" />
+    <Project Path="sandbox/CustomConsoleApp/CustomConsoleApp.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CleProfiler.DatadogTracing.UnitTest/CleProfiler.DatadogTracing.UnitTest.csproj" />
