@@ -10,4 +10,8 @@
     <Description>Zero-dependency .NET library designed to monitor and collect detailed metrics on Contention Events, Garbage Collection (GC), Processes, Threads, and ThreadPool activities through EventListener.</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="ClrProfiler.UnitTest" />
+  </ItemGroup>
+
 </Project>
