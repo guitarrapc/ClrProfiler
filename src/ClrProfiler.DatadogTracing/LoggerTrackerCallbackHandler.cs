@@ -64,6 +64,6 @@ public class LoggerTrackerCallbackHandler(ILogger logger) : IClrTrackerCallbackH
 
     public void OnException(Exception exception)
     {
-        logger.LogCritical(exception, exception.Message);
+        LogMessages.CallbackException(logger, exception, exception.Message);
     }
 }

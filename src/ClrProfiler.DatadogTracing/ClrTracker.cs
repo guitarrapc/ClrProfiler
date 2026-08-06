@@ -37,7 +37,7 @@ public class ClrTracker : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_enabled) return;
 
-            _logger.LogDebug($"Enable {nameof(ClrTracker)}");
+            LogMessages.EnableTracker(_logger);
 
             if (_options.TrackerType is ClrTrackerType.Datadog or ClrTrackerType.Logger)
             {
@@ -72,7 +72,7 @@ public class ClrTracker : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (!_enabled) return;
-            _logger.LogDebug($"Start tracking {nameof(ClrTracker)}");
+            LogMessages.StartTracker(_logger);
             _profilerTracker!.Start();
         }
     }
@@ -83,7 +83,7 @@ public class ClrTracker : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (!_enabled) return;
-            _logger.LogDebug($"Stop tracking {nameof(ClrTracker)}");
+            LogMessages.StopTracker(_logger);
             _profilerTracker!.Stop();
         }
     }
@@ -94,7 +94,7 @@ public class ClrTracker : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (!_enabled) return;
-            _logger.LogDebug($"Restart tracking {nameof(ClrTracker)}");
+            LogMessages.RestartTracker(_logger);
             _profilerTracker!.Restart();
         }
     }
@@ -105,7 +105,7 @@ public class ClrTracker : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (!_enabled) return;
-            _logger.LogDebug($"Cancel tracking {nameof(ClrTracker)}");
+            LogMessages.CancelTracker(_logger);
             _profilerTracker!.Cancel();
         }
     }

@@ -8,6 +8,7 @@ public class MetricTagAllocationTest
 {
     private const int Iterations = 10_000;
     private static readonly ILogger DisabledLogger = new DisabledLoggerImplementation();
+    private static readonly Exception CallbackException = new InvalidOperationException("callback failed");
     private static readonly GCStartEndStatistics Statistics = new(1, 0, 2, 1, 1.5, 100, 200);
 
     [Test]
@@ -38,6 +39,29 @@ public class MetricTagAllocationTest
         for (var i = 0; i < Iterations; i++)
         {
             UseAllTagKinds();
+        }
+        var allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        await Assert.That(allocatedBytes).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task CallbackExceptionLogging_WhenCriticalDisabled_DoesNotAllocate()
+    {
+        var datadogHandler = new DatadogTrackerCallbackHandler(DisabledLogger);
+        var loggerHandler = new LoggerTrackerCallbackHandler(DisabledLogger);
+
+        for (var i = 0; i < 1_000; i++)
+        {
+            datadogHandler.OnException(CallbackException);
+            loggerHandler.OnException(CallbackException);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < Iterations; i++)
+        {
+            datadogHandler.OnException(CallbackException);
+            loggerHandler.OnException(CallbackException);
         }
         var allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - before;
 
