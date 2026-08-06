@@ -1,14 +1,10 @@
 using ClrProfiler.Statistics;
-using Cysharp.Text;
 using Microsoft.Extensions.Logging;
-using System.Collections.Concurrent;
 
 namespace ClrProfiler.DatadogTracing;
 
 public static class LoggerTracing
 {
-    private static readonly ConcurrentDictionary<string, string[]> _tagCache = new();
-
     /// list of event tags
     /// - clr_diagnostics_event.contention.startend_count"
     /// - clr_diagnostics_event.contention.startend_duration_ns"
@@ -29,27 +25,24 @@ public static class LoggerTracing
     // ContentionEvent
     public static void ContentionEventStartEnd(in ContentionEventStatistics statistics, ILogger logger)
     {
-        var key = ZString.Concat("contention_type:", statistics.Flag);
-        var tags = _tagCache.GetOrAdd(key, key => [key]);
-        logger.LogDebug($"clr_diagnostics_event.contention.startend_count: 1, tags: {TagsToString(tags)}");
-        logger.LogDebug($"clr_diagnostics_event.contention.startend_duration_ns: {statistics.DurationNs}, tags: {TagsToString(tags)}");
+        ref readonly var tags = ref MetricTags.GetContention(statistics.Flag);
+        logger.LogDebug($"clr_diagnostics_event.contention.startend_count: 1, tags: {tags.Text}");
+        logger.LogDebug($"clr_diagnostics_event.contention.startend_duration_ns: {statistics.DurationNs}, tags: {tags.Text}");
     }
 
     // GCEvent
     public static void GcEventStartEnd(in GCStartEndStatistics statistics, ILogger logger)
     {
-        var key = ZString.Concat("gc_gen:", statistics.Generation, statistics.Type, statistics.Reason);
-        var tags = _tagCache.GetOrAdd(key, (key, stat) => [ZString.Concat($"gc_gen:", stat.Generation), ZString.Concat("gc_type:", stat.Type), ZString.Concat("gc_reason:", stat.GetReasonString())], statistics);
-        logger.LogDebug($"clr_diagnostics_event.gc.startend_count: 1, tags: {TagsToString(tags)}");
-        logger.LogDebug($"clr_diagnostics_event.gc.startend_duration_ms: {statistics.DurationMillsec}, tags: {TagsToString(tags)}");
+        ref readonly var tags = ref MetricTags.GetGcStartEnd(statistics.Generation, statistics.Type, statistics.Reason);
+        logger.LogDebug($"clr_diagnostics_event.gc.startend_count: 1, tags: {tags.Text}");
+        logger.LogDebug($"clr_diagnostics_event.gc.startend_duration_ms: {statistics.DurationMillsec}, tags: {tags.Text}");
     }
 
     public static void GcEventSuspend(in GCSuspendStatistics statistics, ILogger logger)
     {
-        var key = ZString.Concat("gc_suspend:", statistics.Reason);
-        var tags = _tagCache.GetOrAdd(key, (key, stat) => [ZString.Concat("gc_suspend_reason:", stat.GetReasonString())], statistics);
-        logger.LogDebug($"clr_diagnostics_event.gc.suspend_object_count: {statistics.Count}, tags: {TagsToString(tags)}");
-        logger.LogDebug($"clr_diagnostics_event.gc.suspend_duration_ms: {statistics.DurationMillisec}, tags: {TagsToString(tags)}");
+        ref readonly var tags = ref MetricTags.GetGcSuspend(statistics.Reason);
+        logger.LogDebug($"clr_diagnostics_event.gc.suspend_object_count: {statistics.Count}, tags: {tags.Text}");
+        logger.LogDebug($"clr_diagnostics_event.gc.suspend_duration_ms: {statistics.DurationMillisec}, tags: {tags.Text}");
     }
 
     // ThreadPoolEvent
@@ -59,10 +52,9 @@ public static class LoggerTracing
     }
     public static void ThreadPoolEventAdjustment(in ThreadPoolAdjustmentStatistics statistics, ILogger logger)
     {
-        var key = ZString.Concat("thread_adjust_reason", statistics.Reason);
-        var tags = _tagCache.GetOrAdd(key, (key, stat) => [ZString.Concat("thread_adjust_reason:", stat.GetReasonString())], statistics);
-        logger.LogDebug($"clr_diagnostics_event.threadpool.adjustment_avg_throughput: {statistics.AverageThrouput}, tags: {TagsToString(tags)}");
-        logger.LogDebug($"clr_diagnostics_event.threadpool.adjustment_new_workerthreads_count: {statistics.NewWorkerThreads}, tags: {TagsToString(tags)}");
+        ref readonly var tags = ref MetricTags.GetThreadAdjustment(statistics.Reason);
+        logger.LogDebug($"clr_diagnostics_event.threadpool.adjustment_avg_throughput: {statistics.AverageThrouput}, tags: {tags.Text}");
+        logger.LogDebug($"clr_diagnostics_event.threadpool.adjustment_new_workerthreads_count: {statistics.NewWorkerThreads}, tags: {tags.Text}");
     }
     public static void ThreadPoolStarvationEventAdjustment(in ThreadPoolAdjustmentStatistics statistics, ILogger logger)
     {
@@ -99,26 +91,17 @@ public static class LoggerTracing
     // GC
     public static void GcInfoTimerGauge(in GCInfoStatistics statistics, ILogger logger)
     {
-        var baseTagkey = ZString.Concat("gc_mode", statistics.GCMode, statistics.LatencyMode, statistics.CompactionMode);
-        var baseTag = _tagCache.GetOrAdd(baseTagkey, (key, stat) => [
-            ZString.Concat("gc_mode:", stat.GetGCModeString()),
-            ZString.Concat("latency_mode:", stat.GetLatencyModeString()),
-            ZString.Concat("compaction_mode:", stat.GetCompactionModeString())
-        ], statistics);
-        var gen0Tags = _tagCache.GetOrAdd(ZString.Concat("gen0", baseTagkey), key => baseTag.Prepend($"gc_gen:0").ToArray());
-        var gen1Tags = _tagCache.GetOrAdd(ZString.Concat("gen1", baseTagkey), key => baseTag.Prepend($"gc_gen:1").ToArray());
-        var gen2Tags = _tagCache.GetOrAdd(ZString.Concat("gen2", baseTagkey), key => baseTag.Prepend($"gc_gen:2").ToArray());
-        var genLohTags = _tagCache.GetOrAdd(ZString.Concat("genLoh", baseTagkey), key => baseTag.Prepend($"gc_gen:loh").ToArray());
-        logger.LogDebug($"clr_diagnostics_timer.gc.heap_size_bytes: {statistics.HeapSize}, tags: {TagsToString(baseTag)}");
-        logger.LogDebug($"clr_diagnostics_timer.gc.total_allocation_bytes: {statistics.TotalAllocationBytes}, tags: {TagsToString(baseTag)}");
-        logger.LogDebug($"clr_diagnostics_timer.gc.gc_count: {statistics.Gen0Count}, tags: {TagsToString(gen0Tags)}");
-        logger.LogDebug($"clr_diagnostics_timer.gc.gc_count: {statistics.Gen1Count}, tags: {TagsToString(gen1Tags)}");
-        logger.LogDebug($"clr_diagnostics_timer.gc.gc_count: {statistics.Gen2Count}, tags: {TagsToString(gen2Tags)}");
-        logger.LogDebug($"clr_diagnostics_timer.gc.gc_size: {statistics.Gen0Size}, tags: {TagsToString(gen0Tags)}");
-        logger.LogDebug($"clr_diagnostics_timer.gc.gc_size: {statistics.Gen1Size}, tags: {TagsToString(gen1Tags)}");
-        logger.LogDebug($"clr_diagnostics_timer.gc.gc_size: {statistics.Gen2Size}, tags: {TagsToString(gen2Tags)}");
-        logger.LogDebug($"clr_diagnostics_timer.gc.gc_size: {statistics.LohSize}, tags: {TagsToString(genLohTags)}");
-        logger.LogDebug($"clr_diagnostics_timer.gc.time_in_gc_percent: {statistics.TimeInGc}, tags: {TagsToString(baseTag)}");
+        ref readonly var tags = ref MetricTags.GetGcInfo(statistics.GCMode, statistics.LatencyMode, statistics.CompactionMode);
+        logger.LogDebug($"clr_diagnostics_timer.gc.heap_size_bytes: {statistics.HeapSize}, tags: {tags.Base.Text}");
+        logger.LogDebug($"clr_diagnostics_timer.gc.total_allocation_bytes: {statistics.TotalAllocationBytes}, tags: {tags.Base.Text}");
+        logger.LogDebug($"clr_diagnostics_timer.gc.gc_count: {statistics.Gen0Count}, tags: {tags.Gen0.Text}");
+        logger.LogDebug($"clr_diagnostics_timer.gc.gc_count: {statistics.Gen1Count}, tags: {tags.Gen1.Text}");
+        logger.LogDebug($"clr_diagnostics_timer.gc.gc_count: {statistics.Gen2Count}, tags: {tags.Gen2.Text}");
+        logger.LogDebug($"clr_diagnostics_timer.gc.gc_size: {statistics.Gen0Size}, tags: {tags.Gen0.Text}");
+        logger.LogDebug($"clr_diagnostics_timer.gc.gc_size: {statistics.Gen1Size}, tags: {tags.Gen1.Text}");
+        logger.LogDebug($"clr_diagnostics_timer.gc.gc_size: {statistics.Gen2Size}, tags: {tags.Gen2.Text}");
+        logger.LogDebug($"clr_diagnostics_timer.gc.gc_size: {statistics.LohSize}, tags: {tags.Loh.Text}");
+        logger.LogDebug($"clr_diagnostics_timer.gc.time_in_gc_percent: {statistics.TimeInGc}, tags: {tags.Base.Text}");
     }
 
     // Process
@@ -143,6 +126,4 @@ public static class LoggerTracing
         logger.LogDebug($"clr_diagnostics_timer.thread.lock_contention_count: {statistics.LockContentionCount}, tags: ");
         logger.LogDebug($"clr_diagnostics_timer.thread.completed_items_count: {statistics.CompletedItemsCount}, tags: ");
     }
-
-    private static string TagsToString(string[] tags) => string.Join(",", tags);
 }
