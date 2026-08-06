@@ -488,8 +488,8 @@ public class EventListenerDataIntegrityTest
         var native = actual.Single(value => value.Flag == 1);
         await Assert.That(managed.Count).IsEqualTo(eventCount / 2);
         await Assert.That(native.Count).IsEqualTo(eventCount / 2);
-        await Assert.That(managed.DurationNs).IsEqualTo(Enumerable.Range(0, eventCount).Where(i => i % 2 == 0).Sum(i => i + 0.5));
-        await Assert.That(native.DurationNs).IsEqualTo(Enumerable.Range(0, eventCount).Where(i => i % 2 == 1).Sum(i => i + 0.5));
+        await Assert.That(managed.DurationNs).IsEqualTo(eventCount - 2 + 0.5);
+        await Assert.That(native.DurationNs).IsEqualTo(eventCount - 1 + 0.5);
     }
 
     [Test]
@@ -521,9 +521,34 @@ public class EventListenerDataIntegrityTest
 
         await Assert.That(actual.Sum(value => value.Count)).IsEqualTo(eventCount);
         await Assert.That(actual.Where(value => value.Flag == 0).Sum(value => value.Count)).IsEqualTo(eventCount / 2);
-        await Assert.That(actual.Where(value => value.Flag == 0).Sum(value => value.DurationNs)).IsEqualTo(eventCount / 2 * 2D);
+        await Assert.That(actual.Where(value => value.Flag == 0).All(value => value.DurationNs == 2D)).IsTrue();
         await Assert.That(actual.Where(value => value.Flag == 1).Sum(value => value.Count)).IsEqualTo(eventCount / 2);
-        await Assert.That(actual.Where(value => value.Flag == 1).Sum(value => value.DurationNs)).IsEqualTo(eventCount / 2 * 3D);
+        await Assert.That(actual.Where(value => value.Flag == 1).All(value => value.DurationNs == 3D)).IsTrue();
+    }
+
+    [Test]
+    public async Task ContentionEventListenerDoesNotLoseCountsWhileReaderDrains()
+    {
+        const int eventCount = 10_000;
+        using var cts = new CancellationTokenSource(TestTimeout);
+        var observedCount = 0L;
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            if (Interlocked.Add(ref observedCount, value.Count) == eventCount)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        object?[] payload = [(byte)0, 0U, 2D];
+
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        Parallel.For(0, eventCount, i =>
+            listener.ProcessEvent("ContentionStop_V1", DateTime.UnixEpoch.AddTicks(i), payload));
+        await readerTask;
+
+        await Assert.That(observedCount).IsEqualTo(eventCount);
     }
 
     [Test]

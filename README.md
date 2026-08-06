@@ -138,7 +138,7 @@ tracker.StartTracker();
 
 This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
 
-Contention callbacks are atomically aggregated by contention flag before dispatch. `ContentionEventStatistics.Count` is the represented event count, `DurationNs` is their total duration, and `AverageDurationNs` is the per-event average. This prevents contention bursts from losing counts when callback delivery is slower than event ingestion.
+Contention callbacks atomically aggregate event counts by contention flag before dispatch. `ContentionEventStatistics.Count` is the represented event count and `DurationNs` is the latest observed duration for that flag. This prevents contention bursts from losing counts when callback delivery is slower than event ingestion, without blocking or spinning in the event producer or reader paths.
 
 ## Sandbox
 

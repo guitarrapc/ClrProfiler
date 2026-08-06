@@ -4,6 +4,7 @@ namespace ClrProfiler.Statistics;
 
 public readonly struct ContentionEventStatistics : IEquatable<ContentionEventStatistics>
 {
+    /// <summary>Timestamp of the latest observed contention event for this flag.</summary>
     public readonly long Time;
     /// <summary>
     /// see - https://learn.microsoft.com/en-us/dotnet/framework/performance/contention-etw-events
@@ -11,12 +12,10 @@ public readonly struct ContentionEventStatistics : IEquatable<ContentionEventSta
     /// 1 : native
     /// </summary>
     public readonly byte Flag;
-    /// <summary>Total duration in nanoseconds across the aggregated contention events.</summary>
+    /// <summary>Latest observed contention duration in nanoseconds for this flag.</summary>
     public readonly double DurationNs;
     /// <summary>Number of contention events represented by this value.</summary>
     public readonly long Count;
-    /// <summary>Average duration in nanoseconds per represented contention event.</summary>
-    public double AverageDurationNs => Count > 0 ? DurationNs / Count : 0;
 
     public ContentionEventStatistics(long time, byte flag, double durationNs)
         : this(time, flag, durationNs, 1)
