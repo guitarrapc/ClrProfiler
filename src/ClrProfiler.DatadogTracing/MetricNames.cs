@@ -23,10 +23,10 @@ internal static class MetricNames
     /// </remarks>
     internal static class Event
     {
-        /// <summary>Counter. Tags: <c>contention_type:0|1|unknown</c>.</summary>
+        /// <summary>Counter incremented by the aggregated contention count. Tags: <c>contention_type:0|1|unknown</c>.</summary>
         internal const string ContentionStartEndCount = "clr_diagnostics_event.contention.startend_count";
 
-        /// <summary>Gauge in nanoseconds. Tags: <c>contention_type:0|1|unknown</c>.</summary>
+        /// <summary>Gauge of average contention duration in nanoseconds. Tags: <c>contention_type:0|1|unknown</c>.</summary>
         internal const string ContentionStartEndDurationNs = "clr_diagnostics_event.contention.startend_duration_ns";
 
         /// <summary>Counter. Tags: <c>gc_gen</c>, <c>gc_type</c>, and <c>gc_reason</c>.</summary>

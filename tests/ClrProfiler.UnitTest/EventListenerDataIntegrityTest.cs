@@ -457,38 +457,84 @@ public class EventListenerDataIntegrityTest
     }
 
     [Test]
-    public async Task ContentionEventListenerPreservesEveryEventAtChannelCapacity()
+    public async Task ContentionEventListenerAtomicallyAggregatesBurstWithoutLoss()
     {
-        var actual = new List<ContentionEventStatistics>(ChannelCapacity);
+        const int eventCount = ChannelCapacity * 4;
+        var actual = new List<ContentionEventStatistics>(2);
         using var cts = new CancellationTokenSource(TestTimeout);
-        TestableContentionEventListener? listener = null;
-        listener = new TestableContentionEventListener(value =>
+        var observedCount = 0L;
+        using var listener = new TestableContentionEventListener(value =>
         {
             actual.Add(value);
-            if (actual.Count == ChannelCapacity)
+            observedCount += value.Count;
+            if (observedCount == eventCount)
             {
                 cts.Cancel();
             }
             return Task.CompletedTask;
         });
-        using (listener)
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        for (var i = 0; i < eventCount; i++)
         {
-            var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            for (var i = 0; i < ChannelCapacity; i++)
+            listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(i), [(byte)(i % 2), 0U, i + 0.5]);
+        }
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(actual).Count().IsEqualTo(2);
+        var managed = actual.Single(value => value.Flag == 0);
+        var native = actual.Single(value => value.Flag == 1);
+        await Assert.That(managed.Count).IsEqualTo(eventCount / 2);
+        await Assert.That(native.Count).IsEqualTo(eventCount / 2);
+        await Assert.That(managed.DurationNs).IsEqualTo(Enumerable.Range(0, eventCount).Where(i => i % 2 == 0).Sum(i => i + 0.5));
+        await Assert.That(native.DurationNs).IsEqualTo(Enumerable.Range(0, eventCount).Where(i => i % 2 == 1).Sum(i => i + 0.5));
+    }
+
+    [Test]
+    public async Task ContentionEventListenerAtomicallyAggregatesConcurrentProducers()
+    {
+        const int eventCount = 10_000;
+        using var cts = new CancellationTokenSource(TestTimeout);
+        var actual = new List<ContentionEventStatistics>(2);
+        var observedCount = 0L;
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            observedCount += value.Count;
+            if (observedCount == eventCount)
             {
-                listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(i), [(byte)(i % 2), 0U, i + 0.5]);
+                cts.Cancel();
             }
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        object?[] managedPayload = [(byte)0, 0U, 2D];
+        object?[] nativePayload = [(byte)1, 0U, 3D];
 
-            listener.EnableReading();
-            await listener.OnReadResultAsync(cts.Token);
-        }
+        Parallel.For(0, eventCount, i =>
+            listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(i), i % 2 == 0 ? managedPayload : nativePayload));
 
-        await Assert.That(actual.Count).IsEqualTo(ChannelCapacity);
-        for (var i = 0; i < ChannelCapacity; i++)
-        {
-            await Assert.That(actual[i].Flag).IsEqualTo((byte)(i % 2));
-            await Assert.That(actual[i].DurationNs).IsEqualTo(i + 0.5);
-        }
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(actual.Sum(value => value.Count)).IsEqualTo(eventCount);
+        await Assert.That(actual.Where(value => value.Flag == 0).Sum(value => value.Count)).IsEqualTo(eventCount / 2);
+        await Assert.That(actual.Where(value => value.Flag == 0).Sum(value => value.DurationNs)).IsEqualTo(eventCount / 2 * 2D);
+        await Assert.That(actual.Where(value => value.Flag == 1).Sum(value => value.Count)).IsEqualTo(eventCount / 2);
+        await Assert.That(actual.Where(value => value.Flag == 1).Sum(value => value.DurationNs)).IsEqualTo(eventCount / 2 * 3D);
+    }
+
+    [Test]
+    public async Task ContentionEventStatisticsEqualityIncludesAggregateCount()
+    {
+        var first = new ContentionEventStatistics(1, 0, 10, 1);
+        var second = new ContentionEventStatistics(1, 0, 10, 2);
+
+        await Assert.That(first.Equals(second)).IsFalse();
+        await Assert.That(first == second).IsFalse();
+        await Assert.That(first != second).IsTrue();
     }
 
     [Test]

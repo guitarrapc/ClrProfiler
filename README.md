@@ -138,6 +138,8 @@ tracker.StartTracker();
 
 This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
 
+Contention callbacks are atomically aggregated by contention flag before dispatch. `ContentionEventStatistics.Count` is the represented event count, `DurationNs` is their total duration, and `AverageDurationNs` is the per-event average. This prevents contention bursts from losing counts when callback delivery is slower than event ingestion.
+
 ## Sandbox
 
 Run ConsoleApp, then metrics ingested will shown on Console. Sandbox runs both Server and Client. Server is listen UDP Server on `127.0.0.1:8125` and accept request from local datadog agent.
