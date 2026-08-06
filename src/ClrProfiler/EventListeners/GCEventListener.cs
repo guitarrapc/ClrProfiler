@@ -10,22 +10,21 @@ namespace ClrProfiler.EventListeners;
 /// </summary>
 public class GCEventListener : ProfileEventListenerBase, IChannelReader
 {
-    // A background GC can overlap a foreground GC, so GC start state must be
-    // correlated by the GC index carried by both GCStart and GCEnd. GC indices
-    // are sequential and the runtime cannot have this many collections active
-    // concurrently, making a fixed array sufficient without per-event allocation.
+    // A background GC can overlap foreground GCs, so correlate by GC index.
+    // Linear probing keeps the state bounded and allocation-free per event while
+    // allowing indices separated by the table capacity to remain active together.
     private const int GCStartStateCapacity = 64;
 
     private readonly Channel<GCEventStatistics> _channel;
     private readonly Func<GCEventStatistics, Task> _onEventEmit;
     private readonly Action<Exception> _onEventError;
-    private readonly GCStartState[] _gcStartStates = new GCStartState[GCStartStateCapacity];
-    private readonly object _gcStartStatesLock = new();
+    private readonly GCStartStateSlot[] _gcStartStates = new GCStartStateSlot[GCStartStateCapacity];
 
     // suspend
-    long suspendTimeGCStart = 0;
-    uint suspendReason = 0;
-    uint suspendCount = 0;
+    private long _suspendOwner;
+    private long _suspendTimeGCStart;
+    private uint _suspendReason;
+    private uint _suspendCount;
 
     public GCEventListener(Func<GCEventStatistics, Task> onEventEmit, Action<Exception> onEventError) : base("Microsoft-Windows-DotNETRuntime", EventLevel.Informational, ClrRuntimeEventKeywords.GC)
     {
@@ -34,7 +33,7 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
         var channelOption = new BoundedChannelOptions(50)
         {
             SingleReader = true,
-            SingleWriter = true,
+            SingleWriter = false,
             FullMode = BoundedChannelFullMode.DropOldest,
         };
         _channel = Channel.CreateBounded<GCEventStatistics>(channelOption);
@@ -89,37 +88,31 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
             // NOTE: HeapStat will retrieve in GCInfoTimerListener
             if (eventName.StartsWith("GCStart_", StringComparison.OrdinalIgnoreCase)) // GCStart_V1 / V2 ...
             {
-                var gcIndex = ReadUInt32(payload, 0);
+                var gcIndex = ReadRequiredUInt32(payload, 0);
                 var startState = new GCStartState(
                     gcIndex,
-                    ReadUInt32(payload, 3),
-                    ReadUInt32(payload, 2),
+                    ReadRequiredUInt32(payload, 3),
+                    ReadRequiredUInt32(payload, 2),
                     timeStamp.Ticks);
 
-                lock (_gcStartStatesLock)
+                var storeResult = StoreGCStartState(startState);
+                if (storeResult != GCStartStateStoreResult.Stored)
                 {
-                    _gcStartStates[GetGCStartStateSlot(gcIndex)] = startState;
+                    throw new InvalidOperationException(storeResult == GCStartStateStoreResult.ReplacedOldest
+                        ? $"GC correlation capacity exceeded. Replaced the oldest start with index {gcIndex}."
+                        : $"GC correlation state was busy. Dropped start with index {gcIndex}.");
                 }
             }
             else if (eventName.StartsWith("GCEnd_", StringComparison.OrdinalIgnoreCase)) // GCEnd_V1 / V2 ...
             {
                 long timeGCEnd = timeStamp.Ticks;
-                var gcIndex = ReadUInt32(payload, 0);
-                var generation = ReadUInt32(payload, 1);
-                GCStartState startState;
-
-                lock (_gcStartStatesLock)
+                var gcIndex = ReadRequiredUInt32(payload, 0);
+                var generation = ReadRequiredUInt32(payload, 1);
+                if (!TryTakeGCStartState(gcIndex, out var startState))
                 {
-                    var slot = GetGCStartStateSlot(gcIndex);
-                    startState = _gcStartStates[slot];
-                    if (!startState.Active || startState.Index != gcIndex)
-                    {
-                        // The listener may be enabled in the middle of a GC and
-                        // observe its end without having observed its start.
-                        return;
-                    }
-
-                    _gcStartStates[slot] = default;
+                    // The listener may be enabled in the middle of a GC and
+                    // observe its end without having observed its start.
+                    return;
                 }
 
                 var duration = (double)(timeGCEnd - startState.StartTime) / 10.0 / 1000.0;
@@ -130,14 +123,23 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
             }
             else if (eventName.StartsWith("GCSuspendEEBegin", StringComparison.OrdinalIgnoreCase))
             {
-                suspendTimeGCStart = timeStamp.Ticks;
-                suspendReason = uint.Parse(payload?[0]?.ToString() ?? "0");
-                suspendCount = uint.Parse(payload?[1]?.ToString() ?? "0");
+                var reason = ReadRequiredUInt32(payload, 0);
+                var count = ReadRequiredUInt32(payload, 1);
+                var replacedActiveSuspend = !TryBeginSuspend(timeStamp.Ticks, reason, count);
+                if (replacedActiveSuspend)
+                {
+                    throw new InvalidOperationException("A new GC suspend start replaced an unmatched active suspend start.");
+                }
             }
             else if (eventName.StartsWith("GCRestartEEEnd", StringComparison.OrdinalIgnoreCase))
             {
                 var suspendEnd = timeStamp.Ticks;
-                var duration = (double)(suspendEnd - suspendTimeGCStart) / 10.0 / 1000.0;
+                if (!TryEndSuspend(out var suspendStart, out var suspendReason, out var suspendCount))
+                {
+                    return;
+                }
+
+                var duration = (double)(suspendEnd - suspendStart) / 10.0 / 1000.0;
                 var stat = new GCSuspendStatistics(duration, suspendReason, suspendCount);
 
                 // write to channel
@@ -150,13 +152,140 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
         }
     }
 
-    private static int GetGCStartStateSlot(uint gcIndex) => (int)(gcIndex % GCStartStateCapacity);
-
-    private static uint ReadUInt32(IReadOnlyList<object?>? payload, int index)
+    private GCStartStateStoreResult StoreGCStartState(in GCStartState startState)
     {
-        if (payload is null || (uint)index >= (uint)payload.Count)
+        var firstSlot = (int)(startState.Index % GCStartStateCapacity);
+        var owner = GetCorrelationOwner(startState.Index);
+        for (var offset = 0; offset < GCStartStateCapacity; offset++)
         {
-            return 0;
+            ref var slot = ref _gcStartStates[(firstSlot + offset) % GCStartStateCapacity];
+            var observedOwner = Volatile.Read(ref slot.Owner);
+            if (observedOwner == owner)
+            {
+                if (Interlocked.CompareExchange(ref slot.Owner, -owner, owner) == owner)
+                {
+                    WriteGCStartState(ref slot, startState, owner);
+                    return GCStartStateStoreResult.Stored;
+                }
+                continue;
+            }
+
+            if (observedOwner == 0 && Interlocked.CompareExchange(ref slot.Owner, -owner, 0) == 0)
+            {
+                WriteGCStartState(ref slot, startState, owner);
+                return GCStartStateStoreResult.Stored;
+            }
+        }
+
+        var oldestSlotIndex = -1;
+        var oldestStartTime = long.MaxValue;
+        var oldestOwner = 0L;
+        for (var i = 0; i < GCStartStateCapacity; i++)
+        {
+            ref var slot = ref _gcStartStates[i];
+            var observedOwner = Volatile.Read(ref slot.Owner);
+            if (observedOwner > 0 && slot.StartTime < oldestStartTime)
+            {
+                oldestStartTime = slot.StartTime;
+                oldestSlotIndex = i;
+                oldestOwner = observedOwner;
+            }
+        }
+
+        if (oldestSlotIndex >= 0)
+        {
+            ref var oldestSlot = ref _gcStartStates[oldestSlotIndex];
+            if (Interlocked.CompareExchange(ref oldestSlot.Owner, -owner, oldestOwner) == oldestOwner)
+            {
+                WriteGCStartState(ref oldestSlot, startState, owner);
+                return GCStartStateStoreResult.ReplacedOldest;
+            }
+        }
+
+        return GCStartStateStoreResult.Dropped;
+    }
+
+    private bool TryTakeGCStartState(uint gcIndex, out GCStartState startState)
+    {
+        var firstSlot = (int)(gcIndex % GCStartStateCapacity);
+        var owner = GetCorrelationOwner(gcIndex);
+        for (var offset = 0; offset < GCStartStateCapacity; offset++)
+        {
+            ref var slot = ref _gcStartStates[(firstSlot + offset) % GCStartStateCapacity];
+            if (Volatile.Read(ref slot.Owner) != owner)
+            {
+                continue;
+            }
+
+            if (Interlocked.CompareExchange(ref slot.Owner, -owner, owner) != owner)
+            {
+                continue;
+            }
+
+            startState = new GCStartState(slot.Index, slot.Type, slot.Reason, slot.StartTime);
+            Volatile.Write(ref slot.Owner, 0);
+            return true;
+        }
+
+        startState = default;
+        return false;
+    }
+
+    private static void WriteGCStartState(ref GCStartStateSlot slot, in GCStartState startState, long owner)
+    {
+        slot.Index = startState.Index;
+        slot.Type = startState.Type;
+        slot.Reason = startState.Reason;
+        slot.StartTime = startState.StartTime;
+        Volatile.Write(ref slot.Owner, owner);
+    }
+
+    private static long GetCorrelationOwner(uint index) => (long)index + 1;
+
+    private bool TryBeginSuspend(long startTime, uint reason, uint count)
+    {
+        var owner = GetCorrelationOwner(count);
+        var previousOwner = Interlocked.CompareExchange(ref _suspendOwner, -owner, 0);
+        var replacedActive = false;
+        if (previousOwner != 0)
+        {
+            if (previousOwner < 0 || Interlocked.CompareExchange(ref _suspendOwner, -owner, previousOwner) != previousOwner)
+            {
+                throw new InvalidOperationException("GC suspend correlation state was busy. Dropped the suspend start.");
+            }
+            replacedActive = true;
+        }
+
+        _suspendTimeGCStart = startTime;
+        _suspendReason = reason;
+        _suspendCount = count;
+        Volatile.Write(ref _suspendOwner, owner);
+        return !replacedActive;
+    }
+
+    private bool TryEndSuspend(out long startTime, out uint reason, out uint count)
+    {
+        var owner = Volatile.Read(ref _suspendOwner);
+        if (owner <= 0 || Interlocked.CompareExchange(ref _suspendOwner, -owner, owner) != owner)
+        {
+            startTime = 0;
+            reason = 0;
+            count = 0;
+            return false;
+        }
+
+        startTime = _suspendTimeGCStart;
+        reason = _suspendReason;
+        count = _suspendCount;
+        Volatile.Write(ref _suspendOwner, 0);
+        return true;
+    }
+
+    private static uint ReadRequiredUInt32(IReadOnlyList<object?>? payload, int index)
+    {
+        if (payload is null || (uint)index >= (uint)payload.Count || payload[index] is null)
+        {
+            throw new InvalidDataException($"Required GC payload at index {index} is missing.");
         }
 
         return payload[index] switch
@@ -169,7 +298,6 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
             sbyte value => checked((uint)value),
             ulong value => checked((uint)value),
             long value => checked((uint)value),
-            null => 0,
             _ => Convert.ToUInt32(payload[index], System.Globalization.CultureInfo.InvariantCulture),
         };
     }
@@ -180,7 +308,22 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
         public readonly uint Type = type;
         public readonly uint Reason = reason;
         public readonly long StartTime = startTime;
-        public readonly bool Active = true;
+    }
+
+    private struct GCStartStateSlot
+    {
+        public long Owner;
+        public uint Index;
+        public uint Type;
+        public uint Reason;
+        public long StartTime;
+    }
+
+    private enum GCStartStateStoreResult
+    {
+        Stored,
+        ReplacedOldest,
+        Dropped,
     }
 
     public async ValueTask OnReadResultAsync(CancellationToken cancellationToken = default)
