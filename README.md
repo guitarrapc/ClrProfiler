@@ -11,6 +11,11 @@
 - **Ease of Use**
   Designed for simplicity, ClrProfiler allows for straightforward integration into your projects, facilitating immediate performance tracking without the need for complex configurations.
 
+## Benchmarks
+
+`src/ClrProfiler.Benchmarks` measures representative GC, contention, and ThreadPool workloads with ClrProfiler disabled and enabled. BenchmarkDotNet reports execution time, allocated bytes, and GC collection counts for both conditions.
+
+
 ## Getting Started
 
 To utilize ClrProfiler with Datadog metrics, include the `ClrProfiler.DatadogTracing` package in your project. Initialize the Dogstatsd and enable the CLR tracker as demonstrated below:
