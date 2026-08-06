@@ -10,7 +10,8 @@ public static class DatadogTracing
     {
         ref readonly var tags = ref MetricTags.GetContention(statistics.Flag);
         DogStatsd.Counter(MetricNames.Event.ContentionStartEndCount, statistics.Count, tags: tags.Values);
-        DogStatsd.Gauge(MetricNames.Event.ContentionStartEndDurationNs, statistics.DurationNs, tags: tags.Values);
+        DogStatsd.Gauge(MetricNames.Event.ContentionStartEndDurationNs, statistics.DurationNsMax, tags: tags.Values);
+        DogStatsd.Counter(MetricNames.Event.ContentionStartEndDurationNsSum, statistics.DurationNsSum, tags: tags.Values);
     }
 
     // GCEvent

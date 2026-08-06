@@ -138,7 +138,21 @@ tracker.StartTracker();
 
 This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
 
-Contention callbacks atomically aggregate event counts by contention flag before dispatch. `ContentionEventStatistics.Count` is the represented event count and `DurationNs` is the latest observed duration for that flag. This prevents contention bursts from losing counts when callback delivery is slower than event ingestion, without blocking or spinning in the event producer or reader paths.
+Contention callbacks aggregate events by contention flag before dispatch, so one `ContentionEventStatistics` can represent many events. This keeps contention bursts intact when callback delivery is slower than event ingestion, without blocking the event producer.
+
+| Member | Meaning |
+| --- | --- |
+| `Count` | Number of contention events represented by this value. |
+| `DurationNsSum` | Total contention duration in nanoseconds across those events. |
+| `DurationNsMax` | Longest single contention duration in nanoseconds among those events. |
+| `DurationNsMean` | `DurationNsSum / Count`, or 0 when nothing was aggregated. |
+| `Time` | Timestamp of the newest event observed for the flag. The duration fields summarize the whole window, so they are not tied to this timestamp. |
+
+Every event contributes to `Count` and `DurationNsSum`, so no duration is discarded no matter how large the burst. Durations accumulate as whole picoseconds internally, which keeps the per-event fold to a single lock-free add; non-finite or negative payload durations contribute 0 while still being counted.
+
+Aggregates are reset per dispatch. A single event's duration may be attributed to the dispatch immediately before the one carrying its count, so an individual value can be skewed by one event under concurrency. Totals across dispatches are exact.
+
+The Datadog and logger adapters project this as `startend_count` (counter, `Count`), `startend_duration_ns` (gauge, `DurationNsMax`), and `startend_duration_ns_sum` (counter, `DurationNsSum`). Divide the last by the first for the mean.
 
 ## Sandbox
 

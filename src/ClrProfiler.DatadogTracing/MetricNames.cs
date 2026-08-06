@@ -26,8 +26,11 @@ internal static class MetricNames
         /// <summary>Counter incremented by the aggregated contention count. Tags: <c>contention_type:0|1|unknown</c>.</summary>
         internal const string ContentionStartEndCount = "clr_diagnostics_event.contention.startend_count";
 
-        /// <summary>Gauge of the latest contention duration in nanoseconds. Tags: <c>contention_type:0|1|unknown</c>.</summary>
+        /// <summary>Gauge of the longest contention duration in nanoseconds within the aggregation window. Tags: <c>contention_type:0|1|unknown</c>.</summary>
         internal const string ContentionStartEndDurationNs = "clr_diagnostics_event.contention.startend_duration_ns";
+
+        /// <summary>Counter incremented by the total contention duration in nanoseconds. Divide by <see cref="ContentionStartEndCount"/> for the mean. Tags: <c>contention_type:0|1|unknown</c>.</summary>
+        internal const string ContentionStartEndDurationNsSum = "clr_diagnostics_event.contention.startend_duration_ns_sum";
 
         /// <summary>Counter. Tags: <c>gc_gen</c>, <c>gc_type</c>, and <c>gc_reason</c>.</summary>
         internal const string GcStartEndCount = "clr_diagnostics_event.gc.startend_count";
@@ -54,6 +57,7 @@ internal static class MetricNames
         [
             ContentionStartEndCount,
             ContentionStartEndDurationNs,
+            ContentionStartEndDurationNsSum,
             GcStartEndCount,
             GcStartEndDurationMs,
             GcSuspendObjectCount,

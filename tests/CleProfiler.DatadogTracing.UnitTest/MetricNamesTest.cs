@@ -12,6 +12,7 @@ public class MetricNamesTest
         [
             "clr_diagnostics_event.contention.startend_count",
             "clr_diagnostics_event.contention.startend_duration_ns",
+            "clr_diagnostics_event.contention.startend_duration_ns_sum",
             "clr_diagnostics_event.gc.startend_count",
             "clr_diagnostics_event.gc.startend_duration_ms",
             "clr_diagnostics_event.gc.suspend_object_count",

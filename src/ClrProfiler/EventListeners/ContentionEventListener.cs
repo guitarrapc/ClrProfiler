@@ -14,12 +14,21 @@ namespace ClrProfiler.EventListeners;
 public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
 {
     private const int ContentionFlagCount = byte.MaxValue + 1;
+    /// <summary>Picoseconds per nanosecond. Durations accumulate as whole picoseconds.</summary>
+    private const double PicosecondsPerNanosecond = 1000D;
+    /// <summary>
+    /// Upper bound for a single event's contribution, roughly 2.5 hours. Real contention is
+    /// orders of magnitude shorter; the cap only exists so a malformed payload cannot push the
+    /// accumulators toward overflow, and it takes 1024 capped events in one window to get there.
+    /// </summary>
+    private const long MaxDurationPicoseconds = long.MaxValue / 1024;
 
     private readonly Channel<bool> _flushSignal;
     private readonly Func<ContentionEventStatistics, Task> _onEventEmit;
     private readonly Action<Exception> _onEventError;
     private readonly long[] _counts = new long[ContentionFlagCount];
-    private readonly long[] _durationBits = new long[ContentionFlagCount];
+    private readonly long[] _durationSumPs = new long[ContentionFlagCount];
+    private readonly long[] _durationMaxPs = new long[ContentionFlagCount];
     private readonly long[] _times = new long[ContentionFlagCount];
     private readonly long[] _activeFlags = new long[ContentionFlagCount / 64];
 
@@ -61,12 +70,61 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
 
     private void Aggregate(long time, byte flag, double durationNs)
     {
-        Interlocked.Exchange(ref _durationBits[flag], BitConverter.DoubleToInt64Bits(durationNs));
-        Interlocked.Exchange(ref _times[flag], time);
+        var durationPs = ToPicoseconds(durationNs);
+
+        // Duration and timestamp are folded in before the count is incremented. The reader gates a
+        // flush on a non-zero count, so this order can only ever attribute a duration to the flush
+        // before its own count, never drop it. Incrementing first would let a duration strand until
+        // the next event for the same flag arrives.
+        Interlocked.Add(ref _durationSumPs[flag], durationPs);
+        InterlockedMax(ref _durationMaxPs[flag], durationPs);
+        InterlockedMax(ref _times[flag], time);
         if (Interlocked.Increment(ref _counts[flag]) == 1)
         {
             Interlocked.Or(ref _activeFlags[flag / 64], 1L << (flag % 64));
             _flushSignal.Writer.TryWrite(true);
+        }
+    }
+
+    /// <summary>
+    /// Converts a payload duration to whole picoseconds so the per-event fold stays a single
+    /// lock-free add. Accumulating the sum as a double would need a compare-exchange loop, which
+    /// spins on exactly the path that is by definition already contended. Picoseconds keep the
+    /// values the runtime reports exact while leaving the accumulator far from overflow.
+    /// Non-finite and negative payloads contribute nothing rather than corrupting the sum.
+    /// </summary>
+    private static long ToPicoseconds(double durationNs)
+    {
+        if (!double.IsFinite(durationNs) || durationNs <= 0D)
+        {
+            return 0L;
+        }
+
+        var picoseconds = durationNs * PicosecondsPerNanosecond;
+        if (picoseconds >= MaxDurationPicoseconds)
+        {
+            return MaxDurationPicoseconds;
+        }
+
+        return (long)Math.Round(picoseconds, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>
+    /// Raises <paramref name="location"/> to <paramref name="value"/> when it is larger. The loop
+    /// only retries when a concurrent writer also raised the value, so it is bounded by the number
+    /// of increases rather than by the number of writers.
+    /// </summary>
+    private static void InterlockedMax(ref long location, long value)
+    {
+        var current = Volatile.Read(ref location);
+        while (current < value)
+        {
+            var observed = Interlocked.CompareExchange(ref location, value, current);
+            if (observed == current)
+            {
+                return;
+            }
+            current = observed;
         }
     }
 
@@ -150,11 +208,23 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
                             var count = Interlocked.Exchange(ref _counts[flag], 0);
                             if (count == 0)
                             {
+                                // A producer sets the active bit before incrementing the count, so a
+                                // bit can outlive the flush that already drained it. Leaving the
+                                // duration accumulators alone here is what lets a duration folded in
+                                // just before that flush be reported by the next one.
                                 continue;
                             }
-                            var durationBits = Volatile.Read(ref _durationBits[flag]);
+                            var durationSumPs = Interlocked.Exchange(ref _durationSumPs[flag], 0);
+                            var durationMaxPs = Interlocked.Exchange(ref _durationMaxPs[flag], 0);
+                            // Read, not reset: this is the newest timestamp seen for the flag and must
+                            // not regress to zero for a flush whose event was counted after a reset.
                             var time = Volatile.Read(ref _times[flag]);
-                            var value = new ContentionEventStatistics(time, (byte)flag, BitConverter.Int64BitsToDouble(durationBits), count);
+                            var value = new ContentionEventStatistics(
+                                time,
+                                (byte)flag,
+                                count,
+                                durationSumPs / PicosecondsPerNanosecond,
+                                durationMaxPs / PicosecondsPerNanosecond);
                             try
                             {
                                 await _onEventEmit.Invoke(value);

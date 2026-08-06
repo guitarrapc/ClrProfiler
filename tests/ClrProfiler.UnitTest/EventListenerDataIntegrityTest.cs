@@ -488,8 +488,118 @@ public class EventListenerDataIntegrityTest
         var native = actual.Single(value => value.Flag == 1);
         await Assert.That(managed.Count).IsEqualTo(eventCount / 2);
         await Assert.That(native.Count).IsEqualTo(eventCount / 2);
-        await Assert.That(managed.DurationNs).IsEqualTo(eventCount - 2 + 0.5);
-        await Assert.That(native.DurationNs).IsEqualTo(eventCount - 1 + 0.5);
+        // Every duration in the burst survives in the sum, and the largest one survives in the max.
+        await Assert.That(managed.DurationNsSum).IsEqualTo(ExpectedDurationSum(eventCount, 0));
+        await Assert.That(native.DurationNsSum).IsEqualTo(ExpectedDurationSum(eventCount, 1));
+        await Assert.That(managed.DurationNsMax).IsEqualTo(eventCount - 2 + 0.5);
+        await Assert.That(native.DurationNsMax).IsEqualTo(eventCount - 1 + 0.5);
+
+        static double ExpectedDurationSum(int eventCount, int flag)
+        {
+            var sum = 0D;
+            for (var i = flag; i < eventCount; i += 2)
+            {
+                sum += i + 0.5;
+            }
+            return sum;
+        }
+    }
+
+    [Test]
+    public async Task ContentionEventListenerAggregatesEveryDurationIntoSumAndMax()
+    {
+        double[] durations = [4.5, 100.25, 0.5, 12D, 100.25];
+        var actual = new List<ContentionEventStatistics>(1);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            cts.Cancel();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        for (var i = 0; i < durations.Length; i++)
+        {
+            listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(i), [(byte)0, 0U, durations[i]]);
+        }
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        var result = await Assert.That(actual).HasSingleItem();
+        await Assert.That(result.Count).IsEqualTo(5L);
+        await Assert.That(result.DurationNsSum).IsEqualTo(217.5D);
+        await Assert.That(result.DurationNsMax).IsEqualTo(100.25D);
+        await Assert.That(result.DurationNsMean).IsEqualTo(43.5D);
+        await Assert.That(result.Time).IsEqualTo(origin.AddTicks(durations.Length - 1).Ticks);
+    }
+
+    [Test]
+    public async Task ContentionEventListenerResetsDurationAggregatesBetweenFlushes()
+    {
+        var actual = new List<ContentionEventStatistics>(2);
+        using var firstFlush = new CancellationTokenSource(TestTimeout);
+        using var secondFlush = new CancellationTokenSource(TestTimeout);
+        var flushed = 0;
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            if (++flushed == 1)
+            {
+                firstFlush.Cancel();
+            }
+            else
+            {
+                secondFlush.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+
+        listener.ProcessEvent("ContentionStop_V1", origin, [(byte)0, 0U, 90D]);
+        listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(1), [(byte)0, 0U, 10D]);
+        await listener.OnReadResultAsync(firstFlush.Token);
+
+        listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(2), [(byte)0, 0U, 3D]);
+        await listener.OnReadResultAsync(secondFlush.Token);
+
+        await Assert.That(actual).Count().IsEqualTo(2);
+        await Assert.That(actual[0].Count).IsEqualTo(2L);
+        await Assert.That(actual[0].DurationNsSum).IsEqualTo(100D);
+        await Assert.That(actual[0].DurationNsMax).IsEqualTo(90D);
+        // The second flush must not carry any part of the first one's durations.
+        await Assert.That(actual[1].Count).IsEqualTo(1L);
+        await Assert.That(actual[1].DurationNsSum).IsEqualTo(3D);
+        await Assert.That(actual[1].DurationNsMax).IsEqualTo(3D);
+    }
+
+    [Test]
+    public async Task ContentionEventListenerTreatsNonFiniteDurationAsZeroWithoutCorruptingTheSum()
+    {
+        var actual = new List<ContentionEventStatistics>(1);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            cts.Cancel();
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        listener.ProcessEvent("ContentionStop_V1", origin, [(byte)0, 0U, double.NaN]);
+        listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(1), [(byte)0, 0U, double.PositiveInfinity]);
+        listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(2), [(byte)0, 0U, -5D]);
+        listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(3), [(byte)0, 0U, 7D]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        var result = await Assert.That(actual).HasSingleItem();
+        await Assert.That(result.Count).IsEqualTo(4L);
+        await Assert.That(result.DurationNsSum).IsEqualTo(7D);
+        await Assert.That(result.DurationNsMax).IsEqualTo(7D);
     }
 
     [Test]
@@ -521,26 +631,36 @@ public class EventListenerDataIntegrityTest
 
         await Assert.That(actual.Sum(value => value.Count)).IsEqualTo(eventCount);
         await Assert.That(actual.Where(value => value.Flag == 0).Sum(value => value.Count)).IsEqualTo(eventCount / 2);
-        await Assert.That(actual.Where(value => value.Flag == 0).All(value => value.DurationNs == 2D)).IsTrue();
+        await Assert.That(actual.Where(value => value.Flag == 0).Sum(value => value.DurationNsSum)).IsEqualTo(eventCount / 2 * 2D);
+        await Assert.That(actual.Where(value => value.Flag == 0).All(value => value.DurationNsMax == 2D)).IsTrue();
         await Assert.That(actual.Where(value => value.Flag == 1).Sum(value => value.Count)).IsEqualTo(eventCount / 2);
-        await Assert.That(actual.Where(value => value.Flag == 1).All(value => value.DurationNs == 3D)).IsTrue();
+        await Assert.That(actual.Where(value => value.Flag == 1).Sum(value => value.DurationNsSum)).IsEqualTo(eventCount / 2 * 3D);
+        await Assert.That(actual.Where(value => value.Flag == 1).All(value => value.DurationNsMax == 3D)).IsTrue();
     }
 
     [Test]
-    public async Task ContentionEventListenerDoesNotLoseCountsWhileReaderDrains()
+    public async Task ContentionEventListenerDoesNotLoseCountsOrDurationsWhileReaderDrains()
     {
         const int eventCount = 10_000;
+        const double durationNs = 2D;
         using var cts = new CancellationTokenSource(TestTimeout);
+        // Only the single reader loop invokes the callback, and the reader task is awaited
+        // before these are read, so plain accumulation is safe here.
         var observedCount = 0L;
+        var observedDurationSum = 0D;
+        var observedDurationMax = 0D;
         using var listener = new TestableContentionEventListener(value =>
         {
-            if (Interlocked.Add(ref observedCount, value.Count) == eventCount)
+            observedCount += value.Count;
+            observedDurationSum += value.DurationNsSum;
+            observedDurationMax = Math.Max(observedDurationMax, value.DurationNsMax);
+            if (observedCount == eventCount)
             {
                 cts.Cancel();
             }
             return Task.CompletedTask;
         });
-        object?[] payload = [(byte)0, 0U, 2D];
+        object?[] payload = [(byte)0, 0U, durationNs];
 
         listener.EnableReading();
         var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
@@ -549,17 +669,43 @@ public class EventListenerDataIntegrityTest
         await readerTask;
 
         await Assert.That(observedCount).IsEqualTo(eventCount);
+        // Each flush may be skewed by one event against its own count, but no duration may be
+        // dropped: the total across every flush has to match the total that was produced.
+        await Assert.That(observedDurationSum).IsEqualTo(eventCount * durationNs);
+        await Assert.That(observedDurationMax).IsEqualTo(durationNs);
     }
 
     [Test]
-    public async Task ContentionEventStatisticsEqualityIncludesAggregateCount()
+    public async Task ContentionEventStatisticsEqualityIncludesEveryAggregateField()
     {
-        var first = new ContentionEventStatistics(1, 0, 10, 1);
-        var second = new ContentionEventStatistics(1, 0, 10, 2);
+        var baseline = new ContentionEventStatistics(1, 0, 3, 90D, 40D);
 
-        await Assert.That(first.Equals(second)).IsFalse();
-        await Assert.That(first == second).IsFalse();
-        await Assert.That(first != second).IsTrue();
+        await Assert.That(baseline.Equals(new ContentionEventStatistics(1, 0, 3, 90D, 40D))).IsTrue();
+        await Assert.That(baseline == new ContentionEventStatistics(1, 0, 3, 90D, 40D)).IsTrue();
+        await Assert.That(baseline != new ContentionEventStatistics(2, 0, 3, 90D, 40D)).IsTrue();
+        await Assert.That(baseline != new ContentionEventStatistics(1, 1, 3, 90D, 40D)).IsTrue();
+        await Assert.That(baseline != new ContentionEventStatistics(1, 0, 4, 90D, 40D)).IsTrue();
+        await Assert.That(baseline != new ContentionEventStatistics(1, 0, 3, 91D, 40D)).IsTrue();
+        await Assert.That(baseline != new ContentionEventStatistics(1, 0, 3, 90D, 41D)).IsTrue();
+    }
+
+    [Test]
+    public async Task ContentionEventStatisticsSingleEventConstructorIsItsOwnSumAndMax()
+    {
+        var single = new ContentionEventStatistics(1, 0, 12.5D);
+
+        await Assert.That(single.Count).IsEqualTo(1L);
+        await Assert.That(single.DurationNsSum).IsEqualTo(12.5D);
+        await Assert.That(single.DurationNsMax).IsEqualTo(12.5D);
+        await Assert.That(single.DurationNsMean).IsEqualTo(12.5D);
+    }
+
+    [Test]
+    public async Task ContentionEventStatisticsMeanIsZeroWhenNothingWasAggregated()
+    {
+        var empty = new ContentionEventStatistics(1, 0, 0, 0D, 0D);
+
+        await Assert.That(empty.DurationNsMean).IsEqualTo(0D);
     }
 
     [Test]
@@ -605,7 +751,8 @@ public class EventListenerDataIntegrityTest
 
         var result = await Assert.That(actual).HasSingleItem();
         await Assert.That(result.Flag).IsEqualTo((byte)1);
-        await Assert.That(result.DurationNs).IsEqualTo(123.5D);
+        await Assert.That(result.DurationNsSum).IsEqualTo(123.5D);
+        await Assert.That(result.DurationNsMax).IsEqualTo(123.5D);
     }
 
     [Test]
