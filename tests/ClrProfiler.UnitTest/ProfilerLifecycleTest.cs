@@ -108,6 +108,17 @@ public class ProfilerLifecycleTest
     }
 
     [Fact]
+    public void DisposedTimerListenerCannotCreateAnotherTimer()
+    {
+        var listener = new TestableThreadInfoTimerListener(_ => Task.CompletedTask);
+
+        listener.StartTimer();
+        listener.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(listener.StartTimer);
+    }
+
+    [Fact]
     public async Task EventReaderContinuesAfterStopAndRestart()
     {
         using var cts = new CancellationTokenSource(TestTimeout);
@@ -289,5 +300,6 @@ public class ProfilerLifecycleTest
         : ThreadInfoTimerListener(onEventEmit, onEventError ?? (exception => throw exception), TimeSpan.FromDays(1), TimeSpan.FromDays(1))
     {
         public void EnableReading() => Enabled = true;
+        public void StartTimer() => RunWithCallback(EventCreatedHandler, static () => { });
     }
 }
