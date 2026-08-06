@@ -29,31 +29,36 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
 
     public override void EventCreatedHandler(EventWrittenEventArgs eventData)
     {
+        ProcessEvent(eventData.EventName, eventData.TimeStamp, eventData.Payload);
+    }
+
+    internal void ProcessEvent(string? eventName, DateTime timeStamp, IReadOnlyList<object?>? payload)
+    {
         // ThreadPoolWorkerThreadAdjustmentAdjustment : ThreadPool starvation on Reason 6
         // IOThreadXxxx_ : Windows only.
-        if (eventData.EventName?.Equals("ThreadPoolWorkerThreadWait", StringComparison.OrdinalIgnoreCase) ?? false) return;
+        if (eventName?.Equals("ThreadPoolWorkerThreadWait", StringComparison.OrdinalIgnoreCase) ?? false) return;
 
         try
         {
-            if (eventData.EventName?.Equals("ThreadPoolWorkerThreadAdjustmentAdjustment", StringComparison.OrdinalIgnoreCase) ?? false)
+            if (eventName?.Equals("ThreadPoolWorkerThreadAdjustmentAdjustment", StringComparison.OrdinalIgnoreCase) ?? false)
             {
                 // do not track on "climing up" reason.
-                var r = eventData.Payload?[2]?.ToString() ?? "0";
+                var r = payload?[2]?.ToString() ?? "0";
                 if (r == "3") return;
 
-                long time = eventData.TimeStamp.Ticks;
-                var averageThroughput = double.Parse(eventData.Payload?[0]?.ToString() ?? "0");
-                var newWorkerThreadCount = uint.Parse(eventData.Payload?[1]?.ToString() ?? "0");
+                long time = timeStamp.Ticks;
+                var averageThroughput = double.Parse(payload?[0]?.ToString() ?? "0");
+                var newWorkerThreadCount = uint.Parse(payload?[1]?.ToString() ?? "0");
                 var reason = uint.Parse(r);
                 var stat = new ThreadPoolEventStatistics(ThreadPoolStatisticType.ThreadPoolAdjustment, new(), new ThreadPoolAdjustmentStatistics(time, averageThroughput, newWorkerThreadCount, reason));
 
                 // write to channel
                 _channel.Writer.TryWrite(stat);
             }
-            else if (eventData.EventName?.StartsWith("ThreadPoolWorkerThreadStop", StringComparison.OrdinalIgnoreCase) ?? false)
+            else if (eventName?.StartsWith("ThreadPoolWorkerThreadStop", StringComparison.OrdinalIgnoreCase) ?? false)
             {
-                long time = eventData.TimeStamp.Ticks;
-                var activeWorkerThreadCount = uint.Parse(eventData.Payload?[0]?.ToString() ?? "0");
+                long time = timeStamp.Ticks;
+                var activeWorkerThreadCount = uint.Parse(payload?[0]?.ToString() ?? "0");
                 // always 0
                 // var retiredWrokerThreadCount = uint.Parse(eventData.Payload[1].ToString());
                 var stat = new ThreadPoolEventStatistics(ThreadPoolStatisticType.ThreadPoolWorkerStartStop, new ThreadPoolWorkerStatistics(time, activeWorkerThreadCount), new());

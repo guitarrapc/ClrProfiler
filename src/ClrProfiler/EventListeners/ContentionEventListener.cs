@@ -30,13 +30,18 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
 
     public override void EventCreatedHandler(EventWrittenEventArgs eventData)
     {
+        ProcessEvent(eventData.EventName, eventData.TimeStamp, eventData.Payload);
+    }
+
+    internal void ProcessEvent(string? eventName, DateTime timeStamp, IReadOnlyList<object?>? payload)
+    {
         try
         {
-            if (!string.IsNullOrWhiteSpace(eventData.EventName) && eventData.EventName.StartsWith("ContentionStop_", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(eventName) && eventName.StartsWith("ContentionStop_", StringComparison.OrdinalIgnoreCase))
             {
-                long time = eventData.TimeStamp.Ticks;
-                var flag = byte.Parse(eventData.Payload?[0]?.ToString() ?? "0");
-                var durationNs = double.Parse(eventData.Payload?[2]?.ToString() ?? "0");
+                long time = timeStamp.Ticks;
+                var flag = byte.Parse(payload?[0]?.ToString() ?? "0");
+                var durationNs = double.Parse(payload?[2]?.ToString() ?? "0");
                 var stat = new ContentionEventStatistics(time, flag, durationNs);
 
                 // write to channel
