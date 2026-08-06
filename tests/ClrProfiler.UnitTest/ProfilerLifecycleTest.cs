@@ -128,6 +128,66 @@ public class ProfilerLifecycleTest
         Assert.Equal(2, count);
     }
 
+    [Fact]
+    public async Task EventReaderReportsCallbackExceptionAndContinues()
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        var expectedException = new InvalidOperationException("callback failed");
+        var reportedException = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var nextEvent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var count = 0;
+        using var listener = new TestableContentionEventListener(_ =>
+        {
+            if (Interlocked.Increment(ref count) == 1)
+            {
+                return Task.FromException(expectedException);
+            }
+            nextEvent.TrySetResult();
+            return Task.CompletedTask;
+        }, exception => reportedException.TrySetResult(exception));
+
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        listener.ProcessEvent("ContentionStop_V1", DateTime.UtcNow, [0U, 0U, 1.0]);
+        listener.ProcessEvent("ContentionStop_V1", DateTime.UtcNow, [1U, 0U, 2.0]);
+
+        Assert.Same(expectedException, await reportedException.Task.WaitAsync(TestTimeout));
+        await nextEvent.Task.WaitAsync(TestTimeout);
+        cts.Cancel();
+        await readerTask;
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public async Task TimerReaderReportsCallbackExceptionAndContinues()
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        var expectedException = new InvalidOperationException("callback failed");
+        var reportedException = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var nextSample = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var count = 0;
+        using var listener = new TestableThreadInfoTimerListener(_ =>
+        {
+            if (Interlocked.Increment(ref count) == 1)
+            {
+                return Task.FromException(expectedException);
+            }
+            nextSample.TrySetResult();
+            return Task.CompletedTask;
+        }, exception => reportedException.TrySetResult(exception));
+
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        listener.EventCreatedHandler();
+        listener.EventCreatedHandler();
+
+        Assert.Same(expectedException, await reportedException.Task.WaitAsync(TestTimeout));
+        await nextSample.Task.WaitAsync(TestTimeout);
+        cts.Cancel();
+        await readerTask;
+        Assert.Equal(2, count);
+    }
+
     private sealed class RecordingProfiler : IProfiler
     {
         public string Name => nameof(RecordingProfiler);
@@ -166,14 +226,18 @@ public class ProfilerLifecycleTest
         }
     }
 
-    private sealed class TestableContentionEventListener(Func<ContentionEventStatistics, Task> onEventEmit)
-        : ContentionEventListener(onEventEmit, exception => throw exception)
+    private sealed class TestableContentionEventListener(
+        Func<ContentionEventStatistics, Task> onEventEmit,
+        Action<Exception>? onEventError = null)
+        : ContentionEventListener(onEventEmit, onEventError ?? (exception => throw exception))
     {
         public void EnableReading() => Enabled = true;
     }
 
-    private sealed class TestableThreadInfoTimerListener(Func<ThreadInfoStatistics, Task> onEventEmit)
-        : ThreadInfoTimerListener(onEventEmit, exception => throw exception, TimeSpan.FromDays(1), TimeSpan.FromDays(1))
+    private sealed class TestableThreadInfoTimerListener(
+        Func<ThreadInfoStatistics, Task> onEventEmit,
+        Action<Exception>? onEventError = null)
+        : ThreadInfoTimerListener(onEventEmit, onEventError ?? (exception => throw exception), TimeSpan.FromDays(1), TimeSpan.FromDays(1))
     {
         public void EnableReading() => Enabled = true;
     }

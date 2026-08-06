@@ -132,7 +132,14 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
                 {
                     if (_onEventEmit != null)
                     {
-                        await _onEventEmit.Invoke(value);
+                        try
+                        {
+                            await _onEventEmit.Invoke(value);
+                        }
+                        catch (Exception ex)
+                        {
+                            _onEventError.Invoke(ex);
+                        }
                     }
                 }
             }

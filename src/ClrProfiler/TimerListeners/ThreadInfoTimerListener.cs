@@ -68,7 +68,14 @@ public class ThreadInfoTimerListener : TimerListenerBase, IDisposable, IChannelR
                 {
                     if (_onEventEmit != null)
                     {
-                        await _onEventEmit.Invoke(value);
+                        try
+                        {
+                            await _onEventEmit.Invoke(value);
+                        }
+                        catch (Exception ex)
+                        {
+                            _onEventError.Invoke(ex);
+                        }
                     }
                 }
             }
