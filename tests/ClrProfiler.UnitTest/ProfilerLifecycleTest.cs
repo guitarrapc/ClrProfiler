@@ -4,13 +4,13 @@ using ClrProfiler.TimerListeners;
 
 namespace ClrProfiler.UnitTest;
 
-[Collection(nameof(TestCollectionDefinition))]
+[NotInParallel]
 public class ProfilerLifecycleTest
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
 
-    [Fact]
-    public void TrackerLifecycleTransitionsAreIdempotent()
+    [Test]
+    public async Task TrackerLifecycleTransitionsAreIdempotent()
     {
         using var firstCts = new CancellationTokenSource();
         using var secondCts = new CancellationTokenSource();
@@ -21,32 +21,32 @@ public class ProfilerLifecycleTest
         {
             tracker.Start();
             tracker.Start();
-            Assert.Equal(1, profiler.StartCount);
-            Assert.Equal(1, profiler.ReadCount);
+            await Assert.That(profiler.StartCount).IsEqualTo(1);
+            await Assert.That(profiler.ReadCount).IsEqualTo(1);
 
             tracker.Stop();
             tracker.Stop();
-            Assert.Equal(1, profiler.StopCount);
+            await Assert.That(profiler.StopCount).IsEqualTo(1);
 
             tracker.Restart();
             tracker.Restart();
-            Assert.Equal(1, profiler.RestartCount);
-            Assert.Equal(1, profiler.ReadCount);
+            await Assert.That(profiler.RestartCount).IsEqualTo(1);
+            await Assert.That(profiler.ReadCount).IsEqualTo(1);
 
             tracker.Stop();
             tracker.Start();
-            Assert.Equal(2, profiler.RestartCount);
-            Assert.Equal(1, profiler.ReadCount);
+            await Assert.That(profiler.RestartCount).IsEqualTo(2);
+            await Assert.That(profiler.ReadCount).IsEqualTo(1);
 
             tracker.Cancel();
             tracker.Cancel();
-            Assert.Equal(3, profiler.StopCount);
-            Assert.True(firstCts.IsCancellationRequested);
+            await Assert.That(profiler.StopCount).IsEqualTo(3);
+            await Assert.That(firstCts.IsCancellationRequested).IsTrue();
 
-            Assert.True(tracker.Reset(secondCts));
+            await Assert.That(tracker.Reset(secondCts)).IsTrue();
             tracker.Start();
-            Assert.Equal(2, profiler.StartCount);
-            Assert.Equal(2, profiler.ReadCount);
+            await Assert.That(profiler.StartCount).IsEqualTo(2);
+            await Assert.That(profiler.ReadCount).IsEqualTo(2);
         }
         finally
         {
@@ -54,8 +54,8 @@ public class ProfilerLifecycleTest
         }
     }
 
-    [Fact]
-    public void TrackersHaveIndependentStateAndCancellation()
+    [Test]
+    public async Task TrackersHaveIndependentStateAndCancellation()
     {
         using var firstCts = new CancellationTokenSource();
         using var secondCts = new CancellationTokenSource();
@@ -68,15 +68,15 @@ public class ProfilerLifecycleTest
         secondTracker.Start();
         firstTracker.Cancel();
 
-        Assert.True(firstCts.IsCancellationRequested);
-        Assert.False(secondCts.IsCancellationRequested);
-        Assert.False(firstProfiler.Enabled);
-        Assert.True(secondProfiler.Enabled);
-        Assert.Equal(1, firstProfiler.StartCount);
-        Assert.Equal(1, secondProfiler.StartCount);
+        await Assert.That(firstCts.IsCancellationRequested).IsTrue();
+        await Assert.That(secondCts.IsCancellationRequested).IsFalse();
+        await Assert.That(firstProfiler.Enabled).IsFalse();
+        await Assert.That(secondProfiler.Enabled).IsTrue();
+        await Assert.That(firstProfiler.StartCount).IsEqualTo(1);
+        await Assert.That(secondProfiler.StartCount).IsEqualTo(1);
     }
 
-    [Fact]
+    [Test]
     public async Task TimerProfilersHaveIndependentTimers()
     {
         using var cts = new CancellationTokenSource(TestTimeout);
@@ -107,18 +107,18 @@ public class ProfilerLifecycleTest
         await Task.WhenAll(firstReader, secondReader);
     }
 
-    [Fact]
-    public void DisposedTimerListenerCannotCreateAnotherTimer()
+    [Test]
+    public async Task DisposedTimerListenerCannotCreateAnotherTimer()
     {
         var listener = new TestableThreadInfoTimerListener(_ => Task.CompletedTask);
 
         listener.StartTimer();
         listener.Dispose();
 
-        Assert.Throws<ObjectDisposedException>(listener.StartTimer);
+        await Assert.That(listener.StartTimer).Throws<ObjectDisposedException>();
     }
 
-    [Fact]
+    [Test]
     public async Task EventReaderContinuesAfterStopAndRestart()
     {
         using var cts = new CancellationTokenSource(TestTimeout);
@@ -150,10 +150,10 @@ public class ProfilerLifecycleTest
 
         cts.Cancel();
         await readerTask;
-        Assert.Equal(2, count);
+        await Assert.That(count).IsEqualTo(2);
     }
 
-    [Fact]
+    [Test]
     public async Task TimerReaderContinuesAfterStopAndRestart()
     {
         using var cts = new CancellationTokenSource(TestTimeout);
@@ -185,10 +185,10 @@ public class ProfilerLifecycleTest
 
         cts.Cancel();
         await readerTask;
-        Assert.Equal(2, count);
+        await Assert.That(count).IsEqualTo(2);
     }
 
-    [Fact]
+    [Test]
     public async Task EventReaderReportsCallbackExceptionAndContinues()
     {
         using var cts = new CancellationTokenSource(TestTimeout);
@@ -211,14 +211,14 @@ public class ProfilerLifecycleTest
         listener.ProcessEvent("ContentionStop_V1", DateTime.UtcNow, [0U, 0U, 1.0]);
         listener.ProcessEvent("ContentionStop_V1", DateTime.UtcNow, [1U, 0U, 2.0]);
 
-        Assert.Same(expectedException, await reportedException.Task.WaitAsync(TestTimeout));
+        await Assert.That(await reportedException.Task.WaitAsync(TestTimeout)).IsSameReferenceAs(expectedException);
         await nextEvent.Task.WaitAsync(TestTimeout);
         cts.Cancel();
         await readerTask;
-        Assert.Equal(2, count);
+        await Assert.That(count).IsEqualTo(2);
     }
 
-    [Fact]
+    [Test]
     public async Task TimerReaderReportsCallbackExceptionAndContinues()
     {
         using var cts = new CancellationTokenSource(TestTimeout);
@@ -241,11 +241,11 @@ public class ProfilerLifecycleTest
         listener.EventCreatedHandler();
         listener.EventCreatedHandler();
 
-        Assert.Same(expectedException, await reportedException.Task.WaitAsync(TestTimeout));
+        await Assert.That(await reportedException.Task.WaitAsync(TestTimeout)).IsSameReferenceAs(expectedException);
         await nextSample.Task.WaitAsync(TestTimeout);
         cts.Cancel();
         await readerTask;
-        Assert.Equal(2, count);
+        await Assert.That(count).IsEqualTo(2);
     }
 
     private sealed class RecordingProfiler : IProfiler

@@ -3,14 +3,14 @@ using ClrProfiler.TimerListeners;
 
 namespace ClrProfiler.UnitTest;
 
-[Collection(nameof(TestCollectionDefinition))]
+[NotInParallel]
 public class TimerListenerDataIntegrityTest
 {
     private const int ChannelCapacity = 50;
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan UnusedTimerPeriod = TimeSpan.FromDays(1);
 
-    [Fact]
+    [Test]
     public async Task GCInfoTimerListenerPreservesEverySampleAtChannelCapacity()
     {
         var actual = new List<GCInfoStatistics>(ChannelCapacity);
@@ -36,19 +36,19 @@ public class TimerListenerDataIntegrityTest
             await listener.OnReadResultAsync(cts.Token);
         }
 
-        Assert.Equal(ChannelCapacity, actual.Count);
-        Assert.All(actual, value =>
+        await Assert.That(actual.Count).IsEqualTo(ChannelCapacity);
+        foreach (var value in actual)
         {
-            Assert.True(value.Date > DateTime.MinValue);
-            Assert.True(value.HeapSize >= 0);
-            Assert.True(value.TotalAllocationBytes >= 0);
-            Assert.True(value.Gen0Count >= 0);
-            Assert.True(value.Gen1Count >= 0);
-            Assert.True(value.Gen2Count >= 0);
-        });
+            await Assert.That(value.Date > DateTime.MinValue).IsTrue();
+            await Assert.That(value.HeapSize >= 0).IsTrue();
+            await Assert.That(value.TotalAllocationBytes >= 0).IsTrue();
+            await Assert.That(value.Gen0Count >= 0).IsTrue();
+            await Assert.That(value.Gen1Count >= 0).IsTrue();
+            await Assert.That(value.Gen2Count >= 0).IsTrue();
+        }
     }
 
-    [Fact]
+    [Test]
     public async Task ProcessInfoTimerListenerPreservesEverySampleAtChannelCapacity()
     {
         var actual = new List<ProcessInfoStatistics>(ChannelCapacity);
@@ -74,17 +74,17 @@ public class TimerListenerDataIntegrityTest
             await listener.OnReadResultAsync(cts.Token);
         }
 
-        Assert.Equal(ChannelCapacity, actual.Count);
-        Assert.All(actual, value =>
+        await Assert.That(actual.Count).IsEqualTo(ChannelCapacity);
+        foreach (var value in actual)
         {
-            Assert.True(value.Date > DateTime.MinValue);
-            Assert.True(value.Cpu >= 0);
-            Assert.True(value.WorkingSet > 0);
-            Assert.True(value.PrivateBytes > 0);
-        });
+            await Assert.That(value.Date > DateTime.MinValue).IsTrue();
+            await Assert.That(value.Cpu >= 0).IsTrue();
+            await Assert.That(value.WorkingSet > 0).IsTrue();
+            await Assert.That(value.PrivateBytes > 0).IsTrue();
+        }
     }
 
-    [Fact]
+    [Test]
     public async Task ThreadInfoTimerListenerPreservesEverySampleAtChannelCapacity()
     {
         var actual = new List<ThreadInfoStatistics>(ChannelCapacity);
@@ -110,17 +110,17 @@ public class TimerListenerDataIntegrityTest
             await listener.OnReadResultAsync(cts.Token);
         }
 
-        Assert.Equal(ChannelCapacity, actual.Count);
-        Assert.All(actual, value =>
+        await Assert.That(actual.Count).IsEqualTo(ChannelCapacity);
+        foreach (var value in actual)
         {
-            Assert.True(value.Date > DateTime.MinValue);
-            Assert.True(value.AvailableWorkerThreads >= 0);
-            Assert.True(value.AvailableCompletionPortThreads >= 0);
-            Assert.True(value.MaxWorkerThreads >= value.AvailableWorkerThreads);
-            Assert.True(value.MaxCompletionPortThreads >= value.AvailableCompletionPortThreads);
-            Assert.Equal(value.MaxWorkerThreads - value.AvailableWorkerThreads, value.UsingWorkerThreads);
-            Assert.Equal(value.MaxCompletionPortThreads - value.AvailableCompletionPortThreads, value.UsingCompletionPortThreads);
-        });
+            await Assert.That(value.Date > DateTime.MinValue).IsTrue();
+            await Assert.That(value.AvailableWorkerThreads >= 0).IsTrue();
+            await Assert.That(value.AvailableCompletionPortThreads >= 0).IsTrue();
+            await Assert.That(value.MaxWorkerThreads >= value.AvailableWorkerThreads).IsTrue();
+            await Assert.That(value.MaxCompletionPortThreads >= value.AvailableCompletionPortThreads).IsTrue();
+            await Assert.That(value.UsingWorkerThreads).IsEqualTo(value.MaxWorkerThreads - value.AvailableWorkerThreads);
+            await Assert.That(value.UsingCompletionPortThreads).IsEqualTo(value.MaxCompletionPortThreads - value.AvailableCompletionPortThreads);
+        }
     }
 
     private sealed class TestableGCInfoTimerListener(Func<GCInfoStatistics, Task> onEventEmit)

@@ -2,10 +2,10 @@ using ClrProfiler.Statistics;
 
 namespace ClrProfiler.UnitTest;
 
-[Collection(nameof(TestCollectionDefinition))]
+[NotInParallel]
 public class GcProfilerUnitTest
 {
-    [Fact, TestPriority(0)]
+    [Test]
     public async Task GCInfoTimerProfilerTest()
     {
         var before = GC.GetTotalAllocatedBytes(true);
@@ -48,15 +48,15 @@ public class GcProfilerUnitTest
 
         var total = GC.GetTotalAllocatedBytes(true);
 
-        Assert.Equal(GCMode.Workstation, actual.GCMode);
-        Assert.Equal(System.Runtime.GCLargeObjectHeapCompactionMode.Default, actual.CompactionMode);
-        Assert.Equal(System.Runtime.GCLatencyMode.Interactive, actual.LatencyMode);
+        await Assert.That(actual.GCMode).IsEqualTo(GCMode.Workstation);
+        await Assert.That(actual.CompactionMode).IsEqualTo(System.Runtime.GCLargeObjectHeapCompactionMode.Default);
+        await Assert.That(actual.LatencyMode).IsEqualTo(System.Runtime.GCLatencyMode.Interactive);
 
-        Assert.Equal(gen0GCCount, actual.Gen0Count);
-        Assert.Equal(gen1GCCount, actual.Gen1Count);
-        Assert.Equal(gen2GCCount, actual.Gen2Count);
-        //Assert.Equal(24, actual.Gen0Size);
-        //Assert.Equal(24, actual.Gen1Size);
+        await Assert.That(actual.Gen0Count).IsEqualTo(gen0GCCount);
+        await Assert.That(actual.Gen1Count).IsEqualTo(gen1GCCount);
+        await Assert.That(actual.Gen2Count).IsEqualTo(gen2GCCount);
+        //await Assert.That(actual.Gen0Size).IsEqualTo(24);
+        //await Assert.That(actual.Gen1Size).IsEqualTo(24);
 
         // 1
         profiler.Start();
@@ -71,10 +71,10 @@ public class GcProfilerUnitTest
         profiler.Stop();
         complete = false;
 
-        Assert.Equal(gen0GCCount, actual.Gen0Count);
-        Assert.Equal(gen1GCCount, actual.Gen1Count);
-        Assert.Equal(gen2GCCount, actual.Gen2Count);
-        //Assert.Equal(24, actual.Gen0Size);
+        await Assert.That(actual.Gen0Count).IsEqualTo(gen0GCCount);
+        await Assert.That(actual.Gen1Count).IsEqualTo(gen1GCCount);
+        await Assert.That(actual.Gen2Count).IsEqualTo(gen2GCCount);
+        //await Assert.That(actual.Gen0Size).IsEqualTo(24);
 
         // 2
         profiler.Start();
@@ -89,10 +89,10 @@ public class GcProfilerUnitTest
         profiler.Stop();
         complete = false;
 
-        Assert.Equal(gen0GCCount, actual.Gen0Count);
-        Assert.Equal(gen1GCCount, actual.Gen1Count);
-        Assert.Equal(gen2GCCount, actual.Gen2Count);
-        //Assert.Equal(24, actual.Gen0Size);
+        await Assert.That(actual.Gen0Count).IsEqualTo(gen0GCCount);
+        await Assert.That(actual.Gen1Count).IsEqualTo(gen1GCCount);
+        await Assert.That(actual.Gen2Count).IsEqualTo(gen2GCCount);
+        //await Assert.That(actual.Gen0Size).IsEqualTo(24);
 
         cts.Cancel();
         await readerTask;

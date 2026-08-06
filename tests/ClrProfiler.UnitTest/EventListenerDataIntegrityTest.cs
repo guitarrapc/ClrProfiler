@@ -3,13 +3,13 @@ using ClrProfiler.Statistics;
 
 namespace ClrProfiler.UnitTest;
 
-[Collection(nameof(TestCollectionDefinition))]
+[NotInParallel]
 public class EventListenerDataIntegrityTest
 {
     private const int ChannelCapacity = 50;
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerPreservesEveryEventAtChannelCapacity()
     {
         var actual = new List<GCEventStatistics>(ChannelCapacity);
@@ -44,26 +44,26 @@ public class EventListenerDataIntegrityTest
             await listener.OnReadResultAsync(cts.Token);
         }
 
-        Assert.Equal(ChannelCapacity, actual.Count);
+        await Assert.That(actual.Count).IsEqualTo(ChannelCapacity);
         for (var i = 0; i < ChannelCapacity / 2; i++)
         {
             var startEnd = actual[i * 2];
-            Assert.Equal(GCEventType.GCStartEnd, startEnd.Type);
-            Assert.Equal((uint)i, startEnd.GCStartEndStatistics.Index);
-            Assert.Equal((uint)(i % 2), startEnd.GCStartEndStatistics.Type);
-            Assert.Equal((uint)(i % 3), startEnd.GCStartEndStatistics.Generation);
-            Assert.Equal((uint)(i % 3), startEnd.GCStartEndStatistics.Reason);
-            Assert.Equal(0.5, startEnd.GCStartEndStatistics.DurationMillsec);
+            await Assert.That(startEnd.Type).IsEqualTo(GCEventType.GCStartEnd);
+            await Assert.That(startEnd.GCStartEndStatistics.Index).IsEqualTo((uint)i);
+            await Assert.That(startEnd.GCStartEndStatistics.Type).IsEqualTo((uint)(i % 2));
+            await Assert.That(startEnd.GCStartEndStatistics.Generation).IsEqualTo((uint)(i % 3));
+            await Assert.That(startEnd.GCStartEndStatistics.Reason).IsEqualTo((uint)(i % 3));
+            await Assert.That(startEnd.GCStartEndStatistics.DurationMillsec).IsEqualTo(0.5);
 
             var suspend = actual[(i * 2) + 1];
-            Assert.Equal(GCEventType.GCSuspend, suspend.Type);
-            Assert.Equal(1U, suspend.GCSuspendStatistics.Reason);
-            Assert.Equal((uint)(100 + i), suspend.GCSuspendStatistics.Count);
-            Assert.Equal(0.25, suspend.GCSuspendStatistics.DurationMillisec);
+            await Assert.That(suspend.Type).IsEqualTo(GCEventType.GCSuspend);
+            await Assert.That(suspend.GCSuspendStatistics.Reason).IsEqualTo(1U);
+            await Assert.That(suspend.GCSuspendStatistics.Count).IsEqualTo((uint)(100 + i));
+            await Assert.That(suspend.GCSuspendStatistics.DurationMillisec).IsEqualTo(0.25);
         }
     }
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerCorrelatesOverlappingCollectionsByIndex()
     {
         var actual = new List<GCEventStatistics>(2);
@@ -87,26 +87,26 @@ public class EventListenerDataIntegrityTest
         listener.EnableReading();
         await listener.OnReadResultAsync(cts.Token);
 
-        Assert.Equal(2, actual.Count);
+        await Assert.That(actual.Count).IsEqualTo(2);
 
         var foreground = actual[0].GCStartEndStatistics;
-        Assert.Equal(101U, foreground.Index);
-        Assert.Equal(0U, foreground.Type);
-        Assert.Equal(0U, foreground.Generation);
-        Assert.Equal(0U, foreground.Reason);
-        Assert.Equal(origin.AddTicks(10_000).Ticks, foreground.GCStartTime);
-        Assert.Equal(0.5, foreground.DurationMillsec);
+        await Assert.That(foreground.Index).IsEqualTo(101U);
+        await Assert.That(foreground.Type).IsEqualTo(0U);
+        await Assert.That(foreground.Generation).IsEqualTo(0U);
+        await Assert.That(foreground.Reason).IsEqualTo(0U);
+        await Assert.That(foreground.GCStartTime).IsEqualTo(origin.AddTicks(10_000).Ticks);
+        await Assert.That(foreground.DurationMillsec).IsEqualTo(0.5);
 
         var background = actual[1].GCStartEndStatistics;
-        Assert.Equal(100U, background.Index);
-        Assert.Equal(1U, background.Type);
-        Assert.Equal(2U, background.Generation);
-        Assert.Equal(4U, background.Reason);
-        Assert.Equal(origin.Ticks, background.GCStartTime);
-        Assert.Equal(5.0, background.DurationMillsec);
+        await Assert.That(background.Index).IsEqualTo(100U);
+        await Assert.That(background.Type).IsEqualTo(1U);
+        await Assert.That(background.Generation).IsEqualTo(2U);
+        await Assert.That(background.Reason).IsEqualTo(4U);
+        await Assert.That(background.GCStartTime).IsEqualTo(origin.Ticks);
+        await Assert.That(background.DurationMillsec).IsEqualTo(5.0);
     }
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerDoesNotLoseLongRunningBackgroundGCOnIndexCollision()
     {
         var actual = new List<GCEventStatistics>(2);
@@ -132,7 +132,7 @@ public class EventListenerDataIntegrityTest
             listener.ProcessEvent("GCEnd_V1", origin.AddTicks(15_000), [64U, 0U]);
             listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [0U, 2U]);
 
-            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
         }
         finally
         {
@@ -140,12 +140,12 @@ public class EventListenerDataIntegrityTest
             await readerTask;
         }
 
-        Assert.Equal([64U, 0U], actual.Select(x => x.GCStartEndStatistics.Index));
-        Assert.Equal(0.5, actual[0].GCStartEndStatistics.DurationMillsec);
-        Assert.Equal(5.0, actual[1].GCStartEndStatistics.DurationMillsec);
+        await Assert.That(actual.Select(x => x.GCStartEndStatistics.Index).SequenceEqual([64U, 0U])).IsTrue();
+        await Assert.That(actual[0].GCStartEndStatistics.DurationMillsec).IsEqualTo(0.5);
+        await Assert.That(actual[1].GCStartEndStatistics.DurationMillsec).IsEqualTo(5.0);
     }
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerCorrelatesCollidingIndicesFromConcurrentWriters()
     {
         var actual = new List<GCEventStatistics>(2);
@@ -171,28 +171,28 @@ public class EventListenerDataIntegrityTest
             await Task.WhenAll(
                 Task.Run(() =>
                 {
-                    startBarrier.SignalAndWait(TestContext.Current.CancellationToken);
+                    startBarrier.SignalAndWait(TestContext.Current!.Execution.CancellationToken);
                     listener.ProcessEvent("GCStart_V2", origin, [0U, 2U, 4U, 1U]);
-                }, TestContext.Current.CancellationToken),
+                }, TestContext.Current!.Execution.CancellationToken),
                 Task.Run(() =>
                 {
-                    startBarrier.SignalAndWait(TestContext.Current.CancellationToken);
+                    startBarrier.SignalAndWait(TestContext.Current!.Execution.CancellationToken);
                     listener.ProcessEvent("GCStart_V2", origin.AddTicks(10_000), [64U, 0U, 0U, 0U]);
-                }, TestContext.Current.CancellationToken));
+                }, TestContext.Current!.Execution.CancellationToken));
 
             await Task.WhenAll(
                 Task.Run(() =>
                 {
-                    endBarrier.SignalAndWait(TestContext.Current.CancellationToken);
+                    endBarrier.SignalAndWait(TestContext.Current!.Execution.CancellationToken);
                     listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [0U, 2U]);
-                }, TestContext.Current.CancellationToken),
+                }, TestContext.Current!.Execution.CancellationToken),
                 Task.Run(() =>
                 {
-                    endBarrier.SignalAndWait(TestContext.Current.CancellationToken);
+                    endBarrier.SignalAndWait(TestContext.Current!.Execution.CancellationToken);
                     listener.ProcessEvent("GCEnd_V1", origin.AddTicks(15_000), [64U, 0U]);
-                }, TestContext.Current.CancellationToken));
+                }, TestContext.Current!.Execution.CancellationToken));
 
-            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
         }
         finally
         {
@@ -200,10 +200,10 @@ public class EventListenerDataIntegrityTest
             await readerTask;
         }
 
-        Assert.Equal([0U, 64U], actual.Select(x => x.GCStartEndStatistics.Index).Order());
+        await Assert.That(actual.Select(x => x.GCStartEndStatistics.Index).Order().SequenceEqual([0U, 64U])).IsTrue();
     }
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerMalformedEndDoesNotConsumeValidStart()
     {
         var actual = new List<GCEventStatistics>(1);
@@ -226,7 +226,7 @@ public class EventListenerDataIntegrityTest
             listener.ProcessEvent("GCEnd_V1", origin.AddTicks(1_000), []);
             listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [0U, 2U]);
 
-            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
         }
         finally
         {
@@ -234,14 +234,14 @@ public class EventListenerDataIntegrityTest
             await readerTask;
         }
 
-        var result = Assert.Single(actual).GCStartEndStatistics;
-        Assert.Equal(0U, result.Index);
-        Assert.Equal(origin.AddTicks(50_000).Ticks, result.GCEndTime);
-        Assert.Equal(5.0, result.DurationMillsec);
-        Assert.Single(errors);
+        var result = (await Assert.That(actual).HasSingleItem()).GCStartEndStatistics;
+        await Assert.That(result.Index).IsEqualTo(0U);
+        await Assert.That(result.GCEndTime).IsEqualTo(origin.AddTicks(50_000).Ticks);
+        await Assert.That(result.DurationMillsec).IsEqualTo(5.0);
+        await Assert.That(errors).HasSingleItem();
     }
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerMalformedStartDoesNotReplaceValidStart()
     {
         var actual = new List<GCEventStatistics>(1);
@@ -264,7 +264,7 @@ public class EventListenerDataIntegrityTest
             listener.ProcessEvent("GCStart_V2", origin.AddTicks(1_000), []);
             listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [0U, 2U]);
 
-            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
         }
         finally
         {
@@ -272,13 +272,13 @@ public class EventListenerDataIntegrityTest
             await readerTask;
         }
 
-        var result = Assert.Single(actual).GCStartEndStatistics;
-        Assert.Equal(origin.Ticks, result.GCStartTime);
-        Assert.Equal(5.0, result.DurationMillsec);
-        Assert.Single(errors);
+        var result = (await Assert.That(actual).HasSingleItem()).GCStartEndStatistics;
+        await Assert.That(result.GCStartTime).IsEqualTo(origin.Ticks);
+        await Assert.That(result.DurationMillsec).IsEqualTo(5.0);
+        await Assert.That(errors).HasSingleItem();
     }
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerAcceptsSupportedIntegerPayloadRepresentations()
     {
         var actual = new List<GCEventStatistics>(1);
@@ -299,7 +299,7 @@ public class EventListenerDataIntegrityTest
             listener.ProcessEvent("GCStart_V2", origin, [1, (short)2, "4", (byte)1]);
             listener.ProcessEvent("GCEnd_V1", origin.AddTicks(5_000), [1L, (ushort)2]);
 
-            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
         }
         finally
         {
@@ -307,16 +307,16 @@ public class EventListenerDataIntegrityTest
             await readerTask;
         }
 
-        var result = Assert.Single(actual).GCStartEndStatistics;
-        Assert.Equal(1U, result.Index);
-        Assert.Equal(1U, result.Type);
-        Assert.Equal(2U, result.Generation);
-        Assert.Equal(4U, result.Reason);
-        Assert.Equal(0.5, result.DurationMillsec);
+        var result = (await Assert.That(actual).HasSingleItem()).GCStartEndStatistics;
+        await Assert.That(result.Index).IsEqualTo(1U);
+        await Assert.That(result.Type).IsEqualTo(1U);
+        await Assert.That(result.Generation).IsEqualTo(2U);
+        await Assert.That(result.Reason).IsEqualTo(4U);
+        await Assert.That(result.DurationMillsec).IsEqualTo(0.5);
     }
 
-    [Fact]
-    public void GCEventListenerNormalStartEndHotPathDoesNotAllocate()
+    [Test]
+    public async Task GCEventListenerNormalStartEndHotPathDoesNotAllocate()
     {
         using var listener = new TestableGCEventListener(_ => Task.CompletedTask);
         object?[] startPayload = [0U, 2U, 4U, 1U];
@@ -338,10 +338,10 @@ public class EventListenerDataIntegrityTest
         }
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
-        Assert.Equal(0, allocated);
+        await Assert.That(allocated).IsEqualTo(0);
     }
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerEvictsOldestStaleStartAndReportsBoundedStateOverflow()
     {
         const int correlationCapacity = 64;
@@ -370,7 +370,7 @@ public class EventListenerDataIntegrityTest
             listener.ProcessEvent("GCEnd_V1", origin.AddTicks(correlationCapacity + 5_000), [(uint)correlationCapacity, 0U]);
             listener.ProcessEvent("GCEnd_V1", origin.AddTicks(correlationCapacity + 10_000), [0U, 0U]);
 
-            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
         }
         finally
         {
@@ -378,15 +378,16 @@ public class EventListenerDataIntegrityTest
             await readerTask;
         }
 
-        var result = Assert.Single(actual).GCStartEndStatistics;
-        Assert.Equal((uint)correlationCapacity, result.Index);
-        Assert.Equal(1U, result.Reason);
-        Assert.Single(errors);
-        var error = Assert.IsType<InvalidOperationException>(errors[0]);
-        Assert.Equal("GC correlation capacity exceeded. Evicted start with index 0 to store start with index 64.", error.Message);
+        var result = (await Assert.That(actual).HasSingleItem()).GCStartEndStatistics;
+        await Assert.That(result.Index).IsEqualTo((uint)correlationCapacity);
+        await Assert.That(result.Reason).IsEqualTo(1U);
+        await Assert.That(errors).HasSingleItem();
+        await Assert.That(errors[0]).IsTypeOf<InvalidOperationException>();
+        var error = (InvalidOperationException)errors[0];
+        await Assert.That(error.Message).IsEqualTo("GC correlation capacity exceeded. Evicted start with index 0 to store start with index 64.");
     }
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerIgnoresEndWithoutStartAndProcessesLaterPair()
     {
         var actual = new List<GCEventStatistics>(1);
@@ -408,7 +409,7 @@ public class EventListenerDataIntegrityTest
             listener.ProcessEvent("GCStart_V2", origin.AddTicks(10_000), [43U, 0U, 1U, 0U]);
             listener.ProcessEvent("GCEnd_V1", origin.AddTicks(15_000), [43U, 0U]);
 
-            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
         }
         finally
         {
@@ -416,10 +417,10 @@ public class EventListenerDataIntegrityTest
             await readerTask;
         }
 
-        Assert.Equal(43U, Assert.Single(actual).GCStartEndStatistics.Index);
+        await Assert.That((await Assert.That(actual).HasSingleItem()).GCStartEndStatistics.Index).IsEqualTo(43U);
     }
 
-    [Fact]
+    [Test]
     public async Task GCEventListenerIgnoresRestartWithoutSuspendAndProcessesLaterPair()
     {
         var actual = new List<GCEventStatistics>(1);
@@ -441,7 +442,7 @@ public class EventListenerDataIntegrityTest
             listener.ProcessEvent("GCSuspendEEBegin_V1", origin.AddTicks(10_000), [1U, 123U]);
             listener.ProcessEvent("GCRestartEEEnd_V1", origin.AddTicks(15_000), []);
 
-            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
         }
         finally
         {
@@ -449,13 +450,13 @@ public class EventListenerDataIntegrityTest
             await readerTask;
         }
 
-        var result = Assert.Single(actual).GCSuspendStatistics;
-        Assert.Equal(1U, result.Reason);
-        Assert.Equal(123U, result.Count);
-        Assert.Equal(0.5, result.DurationMillisec);
+        var result = (await Assert.That(actual).HasSingleItem()).GCSuspendStatistics;
+        await Assert.That(result.Reason).IsEqualTo(1U);
+        await Assert.That(result.Count).IsEqualTo(123U);
+        await Assert.That(result.DurationMillisec).IsEqualTo(0.5);
     }
 
-    [Fact]
+    [Test]
     public async Task ContentionEventListenerPreservesEveryEventAtChannelCapacity()
     {
         var actual = new List<ContentionEventStatistics>(ChannelCapacity);
@@ -482,15 +483,15 @@ public class EventListenerDataIntegrityTest
             await listener.OnReadResultAsync(cts.Token);
         }
 
-        Assert.Equal(ChannelCapacity, actual.Count);
+        await Assert.That(actual.Count).IsEqualTo(ChannelCapacity);
         for (var i = 0; i < ChannelCapacity; i++)
         {
-            Assert.Equal((byte)(i % 2), actual[i].Flag);
-            Assert.Equal(i + 0.5, actual[i].DurationNs);
+            await Assert.That(actual[i].Flag).IsEqualTo((byte)(i % 2));
+            await Assert.That(actual[i].DurationNs).IsEqualTo(i + 0.5);
         }
     }
 
-    [Fact]
+    [Test]
     public async Task ThreadPoolEventListenerPreservesEveryTrackedEventAtChannelCapacity()
     {
         var actual = new List<ThreadPoolEventStatistics>(ChannelCapacity);
@@ -522,18 +523,18 @@ public class EventListenerDataIntegrityTest
             await listener.OnReadResultAsync(cts.Token);
         }
 
-        Assert.Equal(ChannelCapacity, actual.Count);
+        await Assert.That(actual.Count).IsEqualTo(ChannelCapacity);
         for (var i = 0; i < ChannelCapacity / 2; i++)
         {
             var adjustment = actual[i * 2];
-            Assert.Equal(ThreadPoolStatisticType.ThreadPoolAdjustment, adjustment.Type);
-            Assert.Equal(i + 0.25, adjustment.ThreadPoolAdjustment.AverageThrouput);
-            Assert.Equal((uint)(10 + i), adjustment.ThreadPoolAdjustment.NewWorkerThreads);
-            Assert.Equal((uint)(i % 3), adjustment.ThreadPoolAdjustment.Reason);
+            await Assert.That(adjustment.Type).IsEqualTo(ThreadPoolStatisticType.ThreadPoolAdjustment);
+            await Assert.That(adjustment.ThreadPoolAdjustment.AverageThrouput).IsEqualTo(i + 0.25);
+            await Assert.That(adjustment.ThreadPoolAdjustment.NewWorkerThreads).IsEqualTo((uint)(10 + i));
+            await Assert.That(adjustment.ThreadPoolAdjustment.Reason).IsEqualTo((uint)(i % 3));
 
             var worker = actual[(i * 2) + 1];
-            Assert.Equal(ThreadPoolStatisticType.ThreadPoolWorkerStartStop, worker.Type);
-            Assert.Equal((uint)(20 + i), worker.ThreadPoolWorker.ActiveWrokerThreads);
+            await Assert.That(worker.Type).IsEqualTo(ThreadPoolStatisticType.ThreadPoolWorkerStartStop);
+            await Assert.That(worker.ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo((uint)(20 + i));
         }
     }
 

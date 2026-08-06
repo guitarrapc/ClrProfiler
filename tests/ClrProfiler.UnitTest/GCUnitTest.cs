@@ -1,9 +1,9 @@
 namespace ClrProfiler.UnitTest;
 
-//[Collection(nameof(TestCollectionDefinition))]
+//[NotInParallel]
 //public class GCUnitTest
 //{
-//    [Fact, TestPriority(999)]
+//    [Test]
 //    public async Task GcAllocateArray100Test()
 //    {
 //        TestHelpers.PrewarmupGC();
@@ -23,6 +23,6 @@ namespace ClrProfiler.UnitTest;
 //        var after = GC.GetTotalMemory(true);
 //        var actual = after - before;
 
-//        actual.Should().Be(400);
+//        await Assert.That(actual).IsEqualTo(400);
 //    }
 //}
