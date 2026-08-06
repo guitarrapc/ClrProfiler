@@ -64,6 +64,398 @@ public class EventListenerDataIntegrityTest
     }
 
     [Fact]
+    public async Task GCEventListenerCorrelatesOverlappingCollectionsByIndex()
+    {
+        var actual = new List<GCEventStatistics>(2);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == 2)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.ProcessEvent("GCStart_V2", origin, [100U, 2U, 4U, 1U]);
+        listener.ProcessEvent("GCStart_V2", origin.AddTicks(10_000), [101U, 0U, 0U, 0U]);
+        listener.ProcessEvent("GCEnd_V1", origin.AddTicks(15_000), [101U, 0U]);
+        listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [100U, 2U]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        Assert.Equal(2, actual.Count);
+
+        var foreground = actual[0].GCStartEndStatistics;
+        Assert.Equal(101U, foreground.Index);
+        Assert.Equal(0U, foreground.Type);
+        Assert.Equal(0U, foreground.Generation);
+        Assert.Equal(0U, foreground.Reason);
+        Assert.Equal(origin.AddTicks(10_000).Ticks, foreground.GCStartTime);
+        Assert.Equal(0.5, foreground.DurationMillsec);
+
+        var background = actual[1].GCStartEndStatistics;
+        Assert.Equal(100U, background.Index);
+        Assert.Equal(1U, background.Type);
+        Assert.Equal(2U, background.Generation);
+        Assert.Equal(4U, background.Reason);
+        Assert.Equal(origin.Ticks, background.GCStartTime);
+        Assert.Equal(5.0, background.DurationMillsec);
+    }
+
+    [Fact]
+    public async Task GCEventListenerDoesNotLoseLongRunningBackgroundGCOnIndexCollision()
+    {
+        var actual = new List<GCEventStatistics>(2);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == 2)
+            {
+                completed.TrySetResult();
+            }
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCStart_V2", origin, [0U, 2U, 4U, 1U]);
+            listener.ProcessEvent("GCStart_V2", origin.AddTicks(10_000), [64U, 0U, 0U, 0U]);
+            listener.ProcessEvent("GCEnd_V1", origin.AddTicks(15_000), [64U, 0U]);
+            listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [0U, 2U]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        Assert.Equal([64U, 0U], actual.Select(x => x.GCStartEndStatistics.Index));
+        Assert.Equal(0.5, actual[0].GCStartEndStatistics.DurationMillsec);
+        Assert.Equal(5.0, actual[1].GCStartEndStatistics.DurationMillsec);
+    }
+
+    [Fact]
+    public async Task GCEventListenerCorrelatesCollidingIndicesFromConcurrentWriters()
+    {
+        var actual = new List<GCEventStatistics>(2);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == 2)
+            {
+                completed.TrySetResult();
+            }
+            return Task.CompletedTask;
+        });
+        using var startBarrier = new Barrier(2);
+        using var endBarrier = new Barrier(2);
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            await Task.WhenAll(
+                Task.Run(() =>
+                {
+                    startBarrier.SignalAndWait(TestContext.Current.CancellationToken);
+                    listener.ProcessEvent("GCStart_V2", origin, [0U, 2U, 4U, 1U]);
+                }, TestContext.Current.CancellationToken),
+                Task.Run(() =>
+                {
+                    startBarrier.SignalAndWait(TestContext.Current.CancellationToken);
+                    listener.ProcessEvent("GCStart_V2", origin.AddTicks(10_000), [64U, 0U, 0U, 0U]);
+                }, TestContext.Current.CancellationToken));
+
+            await Task.WhenAll(
+                Task.Run(() =>
+                {
+                    endBarrier.SignalAndWait(TestContext.Current.CancellationToken);
+                    listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [0U, 2U]);
+                }, TestContext.Current.CancellationToken),
+                Task.Run(() =>
+                {
+                    endBarrier.SignalAndWait(TestContext.Current.CancellationToken);
+                    listener.ProcessEvent("GCEnd_V1", origin.AddTicks(15_000), [64U, 0U]);
+                }, TestContext.Current.CancellationToken));
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        Assert.Equal([0U, 64U], actual.Select(x => x.GCStartEndStatistics.Index).Order());
+    }
+
+    [Fact]
+    public async Task GCEventListenerMalformedEndDoesNotConsumeValidStart()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var errors = new List<Exception>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        }, errors.Add);
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCStart_V2", origin, [0U, 2U, 4U, 1U]);
+            listener.ProcessEvent("GCEnd_V1", origin.AddTicks(1_000), []);
+            listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [0U, 2U]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var result = Assert.Single(actual).GCStartEndStatistics;
+        Assert.Equal(0U, result.Index);
+        Assert.Equal(origin.AddTicks(50_000).Ticks, result.GCEndTime);
+        Assert.Equal(5.0, result.DurationMillsec);
+        Assert.Single(errors);
+    }
+
+    [Fact]
+    public async Task GCEventListenerMalformedStartDoesNotReplaceValidStart()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var errors = new List<Exception>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        }, errors.Add);
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCStart_V2", origin, [0U, 2U, 4U, 1U]);
+            listener.ProcessEvent("GCStart_V2", origin.AddTicks(1_000), []);
+            listener.ProcessEvent("GCEnd_V1", origin.AddTicks(50_000), [0U, 2U]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var result = Assert.Single(actual).GCStartEndStatistics;
+        Assert.Equal(origin.Ticks, result.GCStartTime);
+        Assert.Equal(5.0, result.DurationMillsec);
+        Assert.Single(errors);
+    }
+
+    [Fact]
+    public async Task GCEventListenerAcceptsSupportedIntegerPayloadRepresentations()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCStart_V2", origin, [1, (short)2, "4", (byte)1]);
+            listener.ProcessEvent("GCEnd_V1", origin.AddTicks(5_000), [1L, (ushort)2]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var result = Assert.Single(actual).GCStartEndStatistics;
+        Assert.Equal(1U, result.Index);
+        Assert.Equal(1U, result.Type);
+        Assert.Equal(2U, result.Generation);
+        Assert.Equal(4U, result.Reason);
+        Assert.Equal(0.5, result.DurationMillsec);
+    }
+
+    [Fact]
+    public void GCEventListenerNormalStartEndHotPathDoesNotAllocate()
+    {
+        using var listener = new TestableGCEventListener(_ => Task.CompletedTask);
+        object?[] startPayload = [0U, 2U, 4U, 1U];
+        object?[] endPayload = [0U, 2U];
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var end = start.AddTicks(5_000);
+
+        for (var i = 0; i < 100; i++)
+        {
+            listener.ProcessEvent("GCStart_V2", start, startPayload);
+            listener.ProcessEvent("GCEnd_V1", end, endPayload);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 10_000; i++)
+        {
+            listener.ProcessEvent("GCStart_V2", start, startPayload);
+            listener.ProcessEvent("GCEnd_V1", end, endPayload);
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public async Task GCEventListenerEvictsOldestStaleStartAndReportsBoundedStateOverflow()
+    {
+        const int correlationCapacity = 64;
+        var actual = new List<GCEventStatistics>(1);
+        var errors = new List<Exception>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        }, errors.Add);
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            for (var i = 0; i < correlationCapacity; i++)
+            {
+                listener.ProcessEvent("GCStart_V2", origin.AddTicks(i), [(uint)i, 0U, 0U, 0U]);
+            }
+
+            listener.ProcessEvent("GCStart_V2", origin.AddTicks(correlationCapacity), [(uint)correlationCapacity, 0U, 1U, 0U]);
+            listener.ProcessEvent("GCEnd_V1", origin.AddTicks(correlationCapacity + 5_000), [(uint)correlationCapacity, 0U]);
+            listener.ProcessEvent("GCEnd_V1", origin.AddTicks(correlationCapacity + 10_000), [0U, 0U]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var result = Assert.Single(actual).GCStartEndStatistics;
+        Assert.Equal((uint)correlationCapacity, result.Index);
+        Assert.Equal(1U, result.Reason);
+        Assert.Single(errors);
+        var error = Assert.IsType<InvalidOperationException>(errors[0]);
+        Assert.Equal("GC correlation capacity exceeded. Evicted start with index 0 to store start with index 64.", error.Message);
+    }
+
+    [Fact]
+    public async Task GCEventListenerIgnoresEndWithoutStartAndProcessesLaterPair()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCEnd_V1", origin, [42U, 2U]);
+            listener.ProcessEvent("GCStart_V2", origin.AddTicks(10_000), [43U, 0U, 1U, 0U]);
+            listener.ProcessEvent("GCEnd_V1", origin.AddTicks(15_000), [43U, 0U]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        Assert.Equal(43U, Assert.Single(actual).GCStartEndStatistics.Index);
+    }
+
+    [Fact]
+    public async Task GCEventListenerIgnoresRestartWithoutSuspendAndProcessesLaterPair()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCRestartEEEnd_V1", origin, []);
+            listener.ProcessEvent("GCSuspendEEBegin_V1", origin.AddTicks(10_000), [1U, 123U]);
+            listener.ProcessEvent("GCRestartEEEnd_V1", origin.AddTicks(15_000), []);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var result = Assert.Single(actual).GCSuspendStatistics;
+        Assert.Equal(1U, result.Reason);
+        Assert.Equal(123U, result.Count);
+        Assert.Equal(0.5, result.DurationMillisec);
+    }
+
+    [Fact]
     public async Task ContentionEventListenerPreservesEveryEventAtChannelCapacity()
     {
         var actual = new List<ContentionEventStatistics>(ChannelCapacity);
@@ -145,8 +537,8 @@ public class EventListenerDataIntegrityTest
         }
     }
 
-    private sealed class TestableGCEventListener(Func<GCEventStatistics, Task> onEventEmit)
-        : GCEventListener(onEventEmit, exception => throw exception)
+    private sealed class TestableGCEventListener(Func<GCEventStatistics, Task> onEventEmit, Action<Exception>? onEventError = null)
+        : GCEventListener(onEventEmit, onEventError ?? (exception => throw exception))
     {
         public void EnableReading() => Enabled = true;
         public void DisableReading() => Enabled = false;
