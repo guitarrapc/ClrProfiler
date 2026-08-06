@@ -1,5 +1,6 @@
 using ClrProfiler.Statistics;
 using System.Diagnostics.Tracing;
+using System.Globalization;
 using System.Threading.Channels;
 
 namespace ClrProfiler.EventListeners;
@@ -42,14 +43,13 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
         {
             if (eventName?.Equals("ThreadPoolWorkerThreadAdjustmentAdjustment", StringComparison.OrdinalIgnoreCase) ?? false)
             {
-                // do not track on "climing up" reason.
-                var r = payload?[2]?.ToString() ?? "0";
-                if (r == "3") return;
+                // do not track on "climbing up" reason.
+                var reason = ReadRequiredUInt32(payload, 2);
+                if (reason == 3) return;
 
                 long time = timeStamp.Ticks;
-                var averageThroughput = double.Parse(payload?[0]?.ToString() ?? "0");
-                var newWorkerThreadCount = uint.Parse(payload?[1]?.ToString() ?? "0");
-                var reason = uint.Parse(r);
+                var averageThroughput = ReadRequiredDouble(payload, 0);
+                var newWorkerThreadCount = ReadRequiredUInt32(payload, 1);
                 var stat = new ThreadPoolEventStatistics(ThreadPoolStatisticType.ThreadPoolAdjustment, new(), new ThreadPoolAdjustmentStatistics(time, averageThroughput, newWorkerThreadCount, reason));
 
                 // write to channel
@@ -58,9 +58,8 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
             else if (eventName?.StartsWith("ThreadPoolWorkerThreadStop", StringComparison.OrdinalIgnoreCase) ?? false)
             {
                 long time = timeStamp.Ticks;
-                var activeWorkerThreadCount = uint.Parse(payload?[0]?.ToString() ?? "0");
+                var activeWorkerThreadCount = ReadRequiredUInt32(payload, 0);
                 // always 0
-                // var retiredWrokerThreadCount = uint.Parse(eventData.Payload[1].ToString());
                 var stat = new ThreadPoolEventStatistics(ThreadPoolStatisticType.ThreadPoolWorkerStartStop, new ThreadPoolWorkerStatistics(time, activeWorkerThreadCount), new());
 
                 // write to channel
@@ -71,6 +70,65 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
         {
             _onEventError?.Invoke(ex);
         }
+    }
+
+    private static uint ReadRequiredUInt32(IReadOnlyList<object?>? payload, int index)
+    {
+        if (payload is null || (uint)index >= (uint)payload.Count)
+        {
+            throw new InvalidDataException($"Required ThreadPool payload at index {index} is missing.");
+        }
+
+        var payloadValue = payload[index];
+        if (payloadValue is null)
+        {
+            throw new InvalidDataException($"Required ThreadPool payload at index {index} is missing.");
+        }
+
+        return payloadValue switch
+        {
+            uint value => value,
+            int value => checked((uint)value),
+            ushort value => value,
+            short value => checked((uint)value),
+            byte value => value,
+            sbyte value => checked((uint)value),
+            ulong value => checked((uint)value),
+            long value => checked((uint)value),
+            string value => uint.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
+            _ => throw new InvalidDataException($"ThreadPool payload at index {index} is not an integer."),
+        };
+    }
+
+    private static double ReadRequiredDouble(IReadOnlyList<object?>? payload, int index)
+    {
+        if (payload is null || (uint)index >= (uint)payload.Count)
+        {
+            throw new InvalidDataException($"Required ThreadPool payload at index {index} is missing.");
+        }
+
+        var payloadValue = payload[index];
+        if (payloadValue is null)
+        {
+            throw new InvalidDataException($"Required ThreadPool payload at index {index} is missing.");
+        }
+
+        return payloadValue switch
+        {
+            double value => value,
+            float value => value,
+            decimal value => (double)value,
+            ulong value => value,
+            long value => value,
+            uint value => value,
+            int value => value,
+            ushort value => value,
+            short value => value,
+            byte value => value,
+            sbyte value => value,
+            string value => double.Parse(value, CultureInfo.InvariantCulture),
+            _ => throw new InvalidDataException($"ThreadPool payload at index {index} is not numeric."),
+        };
     }
 
     public async ValueTask OnReadResultAsync(CancellationToken cancellationToken = default)
