@@ -58,6 +58,8 @@ tracker.EnableTracker();
 tracker.StartTracker();
 ```
 
+Metric tags are precomputed when the tracker is enabled, before CLR listeners start. Runtime values that are newer than the known tag mappings use a bounded `unknown` tag instead of creating an unbounded cache entry or throwing. Logger metric projection avoids formatting work when debug logging is disabled.
+
 ## Custom Profiling
 
 For advanced scenarios, you can implement custom profiling by creating your own callback handler. Implement the `IClrTrackerCallbackHandler` interface to define custom behavior for each CLR event type.

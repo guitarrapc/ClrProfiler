@@ -6,6 +6,7 @@ public class ClrTracker : IDisposable
 {
     private readonly ILogger<ClrTracker> _logger;
     private readonly ClrTrackerOptions _options;
+    private readonly Action _initializeMetricTags;
     private readonly object _lifecycleLock = new();
     private ProfilerTracker? _profilerTracker;
     private bool _enabled;
@@ -18,9 +19,15 @@ public class ClrTracker : IDisposable
     }
 
     public ClrTracker(ILoggerFactory loggerFactory, ClrTrackerOptions options)
+        : this(loggerFactory, options, MetricTags.Initialize)
+    {
+    }
+
+    internal ClrTracker(ILoggerFactory loggerFactory, ClrTrackerOptions options, Action initializeMetricTags)
     {
         _logger = loggerFactory.CreateLogger<ClrTracker>();
         _options = options;
+        _initializeMetricTags = initializeMetricTags;
     }
 
     public void EnableTracker()
@@ -31,6 +38,11 @@ public class ClrTracker : IDisposable
             if (_enabled) return;
 
             _logger.LogDebug($"Enable {nameof(ClrTracker)}");
+
+            if (_options.TrackerType is ClrTrackerType.Datadog or ClrTrackerType.Logger)
+            {
+                _initializeMetricTags();
+            }
 
             var profilerOptions = _options.TrackerType switch
             {

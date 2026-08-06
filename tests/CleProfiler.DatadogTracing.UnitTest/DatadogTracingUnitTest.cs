@@ -65,6 +65,8 @@ public class DatadogTracingUnitTest
         }
         await Assert.That(list).Contains(x => x.Contains("clr_diagnostics_event.gc.suspend_object_count"));
         await Assert.That(list).Contains(x => x.Contains("clr_diagnostics_event.gc.suspend_duration_ms"));
+        await Assert.That(list).Contains(x => x.Contains("gc_gen:2,gc_type:0,gc_reason:induced"));
+        await Assert.That(list).Contains(x => x.Contains("gc_suspend_reason:gc"));
 
         tracker.StopTracker();
         cts.Cancel();
