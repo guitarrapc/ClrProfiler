@@ -382,7 +382,8 @@ public class EventListenerDataIntegrityTest
         Assert.Equal((uint)correlationCapacity, result.Index);
         Assert.Equal(1U, result.Reason);
         Assert.Single(errors);
-        Assert.IsType<InvalidOperationException>(errors[0]);
+        var error = Assert.IsType<InvalidOperationException>(errors[0]);
+        Assert.Equal("GC correlation capacity exceeded. Evicted start with index 0 to store start with index 64.", error.Message);
     }
 
     [Fact]

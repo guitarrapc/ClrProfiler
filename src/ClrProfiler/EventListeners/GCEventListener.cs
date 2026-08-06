@@ -95,11 +95,11 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
                     ReadRequiredUInt32(payload, 2),
                     timeStamp.Ticks);
 
-                var storeResult = StoreGCStartState(startState);
+                var storeResult = StoreGCStartState(startState, out var evictedIndex);
                 if (storeResult != GCStartStateStoreResult.Stored)
                 {
                     throw new InvalidOperationException(storeResult == GCStartStateStoreResult.ReplacedOldest
-                        ? $"GC correlation capacity exceeded. Replaced the oldest start with index {gcIndex}."
+                        ? $"GC correlation capacity exceeded. Evicted start with index {evictedIndex} to store start with index {gcIndex}."
                         : $"GC correlation state was busy. Dropped start with index {gcIndex}.");
                 }
             }
@@ -152,8 +152,9 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
         }
     }
 
-    private GCStartStateStoreResult StoreGCStartState(in GCStartState startState)
+    private GCStartStateStoreResult StoreGCStartState(in GCStartState startState, out uint evictedIndex)
     {
+        evictedIndex = 0;
         var firstSlot = (int)(startState.Index % GCStartStateCapacity);
         var owner = GetCorrelationOwner(startState.Index);
         for (var offset = 0; offset < GCStartStateCapacity; offset++)
@@ -197,6 +198,7 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
             ref var oldestSlot = ref _gcStartStates[oldestSlotIndex];
             if (Interlocked.CompareExchange(ref oldestSlot.Owner, -owner, oldestOwner) == oldestOwner)
             {
+                evictedIndex = (uint)(oldestOwner - 1);
                 WriteGCStartState(ref oldestSlot, startState, owner);
                 return GCStartStateStoreResult.ReplacedOldest;
             }
