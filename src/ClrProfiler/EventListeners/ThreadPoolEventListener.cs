@@ -42,7 +42,7 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
         {
             if (eventName?.Equals("ThreadPoolWorkerThreadAdjustmentAdjustment", StringComparison.OrdinalIgnoreCase) ?? false)
             {
-                // do not track on "climing up" reason.
+                // do not track on "climbing up" reason.
                 var reason = ReadRequiredUInt32(payload, 2);
                 if (reason == 3) return;
 
