@@ -23,7 +23,15 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
     /// </summary>
     private const long MaxDurationPicoseconds = long.MaxValue / 1024;
 
+    /// <summary>
+    /// How many <see cref="Stop"/>-sealed aggregates can wait for a reader. One entry per flag per
+    /// stop, so this only fills if the listener is stopped many times over with no reader draining,
+    /// in which case the oldest sealed values are the ones worth keeping.
+    /// </summary>
+    private const int SealedAggregateCapacity = 64;
+
     private readonly Channel<bool> _flushSignal;
+    private readonly Channel<ContentionEventStatistics> _sealedAggregates;
     private readonly Func<ContentionEventStatistics, Task> _onEventEmit;
     private readonly Action<Exception> _onEventError;
     private readonly long[] _counts = new long[ContentionFlagCount];
@@ -43,6 +51,12 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
             FullMode = BoundedChannelFullMode.DropWrite,
         };
         _flushSignal = Channel.CreateBounded<bool>(channelOption);
+        _sealedAggregates = Channel.CreateBounded<ContentionEventStatistics>(new BoundedChannelOptions(SealedAggregateCapacity)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.DropWrite,
+        });
     }
 
     public override void EventCreatedHandler(EventWrittenEventArgs eventData)
@@ -128,6 +142,86 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
         }
     }
 
+    /// <summary>
+    /// Stops the listener and seals whatever is still aggregated so it is delivered as its own
+    /// value.
+    /// </summary>
+    /// <remarks>
+    /// Without this, a burst that was observed but not yet dispatched stays in the accumulators and
+    /// is folded into the first events that arrive after <see cref="ProfileEventListenerBase.Restart"/>,
+    /// reporting old contention under a post-restart timestamp. Sealing happens synchronously here,
+    /// so by the time this returns the accumulators are empty and nothing can merge across the
+    /// boundary.
+    /// </remarks>
+    public override void Stop()
+    {
+        base.Stop();
+
+        var sealedAny = false;
+        for (var wordIndex = 0; wordIndex < _activeFlags.Length; wordIndex++)
+        {
+            var activeFlags = (ulong)Interlocked.Exchange(ref _activeFlags[wordIndex], 0);
+            while (activeFlags != 0)
+            {
+                var bitIndex = BitOperations.TrailingZeroCount(activeFlags);
+                var flag = (wordIndex * 64) + bitIndex;
+                activeFlags &= activeFlags - 1;
+
+                if (TryTakeAggregate(flag, out var value))
+                {
+                    sealedAny |= _sealedAggregates.Writer.TryWrite(value);
+                }
+            }
+        }
+
+        if (sealedAny)
+        {
+            _flushSignal.Writer.TryWrite(true);
+        }
+    }
+
+    /// <summary>
+    /// Takes everything aggregated for <paramref name="flag"/> and resets it for the next window.
+    /// Returns <see langword="false"/> when nothing was counted.
+    /// </summary>
+    private bool TryTakeAggregate(int flag, out ContentionEventStatistics value)
+    {
+        var count = Interlocked.Exchange(ref _counts[flag], 0);
+        if (count == 0)
+        {
+            // A producer sets the active bit before incrementing the count, so a bit can outlive
+            // the flush that already drained it. Leaving the duration accumulators alone here is
+            // what lets a duration folded in just before that flush be reported by the next one.
+            value = default;
+            return false;
+        }
+
+        var durationSumPs = Interlocked.Exchange(ref _durationSumPs[flag], 0);
+        var durationMaxPs = Interlocked.Exchange(ref _durationMaxPs[flag], 0);
+        // Read, not reset: this is the newest timestamp seen for the flag and must not regress to
+        // zero for a window whose event was counted after a reset.
+        var time = Volatile.Read(ref _times[flag]);
+        value = new ContentionEventStatistics(
+            time,
+            (byte)flag,
+            count,
+            durationSumPs / PicosecondsPerNanosecond,
+            durationMaxPs / PicosecondsPerNanosecond);
+        return true;
+    }
+
+    private async Task EmitAsync(ContentionEventStatistics value)
+    {
+        try
+        {
+            await _onEventEmit.Invoke(value);
+        }
+        catch (Exception ex)
+        {
+            _onEventError.Invoke(ex);
+        }
+    }
+
     private static byte ReadRequiredByte(IReadOnlyList<object?>? payload, int index)
     {
         if (payload is null || (uint)index >= (uint)payload.Count)
@@ -196,6 +290,13 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
             {
                 while (_flushSignal.Reader.TryRead(out _))
                 {
+                    // Aggregates sealed by Stop come first so they keep their own timestamp and are
+                    // never reported after work that arrived on a later Restart.
+                    while (_sealedAggregates.Reader.TryRead(out var sealedValue))
+                    {
+                        await EmitAsync(sealedValue);
+                    }
+
                     for (var wordIndex = 0; wordIndex < _activeFlags.Length; wordIndex++)
                     {
                         var activeFlags = (ulong)Interlocked.Exchange(ref _activeFlags[wordIndex], 0);
@@ -205,33 +306,9 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
                             var flag = (wordIndex * 64) + bitIndex;
                             activeFlags &= activeFlags - 1;
 
-                            var count = Interlocked.Exchange(ref _counts[flag], 0);
-                            if (count == 0)
+                            if (TryTakeAggregate(flag, out var value))
                             {
-                                // A producer sets the active bit before incrementing the count, so a
-                                // bit can outlive the flush that already drained it. Leaving the
-                                // duration accumulators alone here is what lets a duration folded in
-                                // just before that flush be reported by the next one.
-                                continue;
-                            }
-                            var durationSumPs = Interlocked.Exchange(ref _durationSumPs[flag], 0);
-                            var durationMaxPs = Interlocked.Exchange(ref _durationMaxPs[flag], 0);
-                            // Read, not reset: this is the newest timestamp seen for the flag and must
-                            // not regress to zero for a flush whose event was counted after a reset.
-                            var time = Volatile.Read(ref _times[flag]);
-                            var value = new ContentionEventStatistics(
-                                time,
-                                (byte)flag,
-                                count,
-                                durationSumPs / PicosecondsPerNanosecond,
-                                durationMaxPs / PicosecondsPerNanosecond);
-                            try
-                            {
-                                await _onEventEmit.Invoke(value);
-                            }
-                            catch (Exception ex)
-                            {
-                                _onEventError.Invoke(ex);
+                                await EmitAsync(value);
                             }
                         }
                     }

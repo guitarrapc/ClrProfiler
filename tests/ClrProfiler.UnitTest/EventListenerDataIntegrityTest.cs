@@ -676,6 +676,99 @@ public class EventListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task ContentionEventListenerDoesNotMergeAggregatesAcrossStopRestart()
+    {
+        var actual = new List<ContentionEventStatistics>(2);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == 2)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        var beforeStop = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var afterRestart = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // A burst arrives while nothing is reading, then the listener stops.
+        for (var i = 0; i < 100; i++)
+        {
+            listener.ProcessEvent("ContentionStop_V1", beforeStop, [(byte)0, 0U, 1D]);
+        }
+        listener.Stop();
+
+        // Much later the listener restarts and a single new event arrives.
+        listener.Restart();
+        listener.ProcessEvent("ContentionStop_V1", afterRestart, [(byte)0, 0U, 9D]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        // Two separate values: what was pending at Stop must not be folded into the events that
+        // arrive after Restart, and must keep its own timestamp.
+        await Assert.That(actual).Count().IsEqualTo(2);
+        await Assert.That(actual[0].Count).IsEqualTo(100L);
+        await Assert.That(actual[0].DurationNsSum).IsEqualTo(100D);
+        await Assert.That(actual[0].DurationNsMax).IsEqualTo(1D);
+        await Assert.That(actual[0].Time).IsEqualTo(beforeStop.Ticks);
+        await Assert.That(actual[1].Count).IsEqualTo(1L);
+        await Assert.That(actual[1].DurationNsSum).IsEqualTo(9D);
+        await Assert.That(actual[1].DurationNsMax).IsEqualTo(9D);
+        await Assert.That(actual[1].Time).IsEqualTo(afterRestart.Ticks);
+    }
+
+    [Test]
+    public async Task ContentionEventListenerStopWithNothingPendingEmitsNothing()
+    {
+        var actual = new List<ContentionEventStatistics>(1);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            return Task.CompletedTask;
+        });
+
+        listener.Stop();
+        listener.Stop();
+        listener.Restart();
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(actual).IsEmpty();
+    }
+
+    [Test]
+    public async Task ContentionEventListenerStopDeliversPendingAggregateToALaterReader()
+    {
+        var actual = new List<ContentionEventStatistics>(2);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Sum(x => x.Count) == 2L)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        listener.ProcessEvent("ContentionStop_V1", origin, [(byte)0, 0U, 4D]);
+        listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(1), [(byte)1, 0U, 6D]);
+        listener.Stop();
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        // Stopping must not discard what was already observed.
+        await Assert.That(actual.Sum(value => value.Count)).IsEqualTo(2L);
+        await Assert.That(actual.Sum(value => value.DurationNsSum)).IsEqualTo(10D);
+    }
+
+    [Test]
     public async Task ContentionEventStatisticsEqualityIncludesEveryAggregateField()
     {
         var baseline = new ContentionEventStatistics(1, 0, 3, 90D, 40D);

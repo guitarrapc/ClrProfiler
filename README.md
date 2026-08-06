@@ -152,6 +152,8 @@ Every event contributes to `Count` and `DurationNsSum`, so no duration is discar
 
 Aggregates are reset per dispatch. A single event's duration may be attributed to the dispatch immediately before the one carrying its count, so an individual value can be skewed by one event under concurrency. Totals across dispatches are exact.
 
+Stopping the profiler seals whatever is still aggregated and dispatches it as its own value, keeping the timestamp of the events it represents. Nothing observed before a stop is discarded, and nothing carries over into the events that arrive after a restart.
+
 A dispatch happens every time the reader drains, which is far more often than a metrics backend flushes. Contention metrics therefore only use statsd types that aggregate correctly over many submissions within one flush interval:
 
 | Metric | statsd type | Value | Why the type |
