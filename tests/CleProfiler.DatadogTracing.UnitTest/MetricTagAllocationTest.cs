@@ -11,7 +11,7 @@ public class MetricTagAllocationTest
     private static readonly GCStartEndStatistics Statistics = new(1, 0, 2, 1, 1.5, 100, 200);
 
     [Test]
-    public async Task LoggerGcEventStartEnd_ReusesPrecomputedTags()
+    public async Task LoggerGcEventStartEnd_WhenDebugDisabled_DoesNotAllocate()
     {
         for (var i = 0; i < 1_000; i++)
         {
@@ -26,7 +26,7 @@ public class MetricTagAllocationTest
         var allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Console.WriteLine($"Allocated bytes: {allocatedBytes}; bytes/call: {(double)allocatedBytes / Iterations:N2}");
-        await Assert.That(allocatedBytes).IsLessThanOrEqualTo(480L * Iterations);
+        await Assert.That(allocatedBytes).IsEqualTo(0);
     }
 
     [Test]
