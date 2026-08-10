@@ -49,8 +49,6 @@ internal static class MetricTags
     private const int KnownGcCompactionModeCount = 2;
     private const int KnownGcSuspendReasonCount = 7;
     private const int KnownThreadAdjustmentReasonCount = 9;
-
-    private const int ContentionFlagCount = KnownContentionFlagCount + 1;
     private const int GcGenerationCount = KnownGcGenerationCount + 1;
     private const int GcTypeCount = KnownGcTypeCount + 1;
     private const int GcReasonCount = KnownGcReasonCount + 1;

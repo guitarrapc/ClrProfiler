@@ -1,5 +1,4 @@
 using BenchmarkDotNet.Attributes;
-using ClrProfiler.Statistics;
 using System.Runtime.CompilerServices;
 
 namespace ClrProfiler.Benchmarks;
