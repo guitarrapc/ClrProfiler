@@ -10,6 +10,44 @@ public class ProfilerLifecycleTest
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
 
     [Test]
+    public async Task TrackerCreatesOnlyEnabledProfilers()
+    {
+        using var cts = new CancellationTokenSource();
+        using var tracker = new ProfilerTracker(new ProfilerTrackerOptions
+        {
+            CancellationTokenSource = cts,
+            EnabledFeatures = ProfilerFeature.GCEvent | ProfilerFeature.ThreadInfoTimer,
+        });
+        var names = new List<string>();
+
+        tracker.Status(status => names.Add(status.Name));
+
+        await Assert.That(names).IsEquivalentTo([
+            nameof(GCEventProfiler),
+            nameof(ThreadInfoTimerProfiler),
+        ]);
+    }
+
+    [Test]
+    public async Task TrackerEnablesAllProfilersByDefault()
+    {
+        using var cts = new CancellationTokenSource();
+        using var tracker = new ProfilerTracker(new ProfilerTrackerOptions { CancellationTokenSource = cts });
+        var names = new List<string>();
+
+        tracker.Status(status => names.Add(status.Name));
+
+        await Assert.That(names).IsEquivalentTo([
+            nameof(GCEventProfiler),
+            nameof(ThreadPoolEventProfiler),
+            nameof(ContentionEventProfiler),
+            nameof(ThreadInfoTimerProfiler),
+            nameof(GCInfoTimerProfiler),
+            nameof(ProcessInfoTimerProfiler),
+        ]);
+    }
+
+    [Test]
     public async Task TrackerLifecycleTransitionsAreIdempotent()
     {
         using var firstCts = new CancellationTokenSource();

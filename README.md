@@ -44,6 +44,24 @@ tracker.StartTracker();
 
 Now you are ready to use ClrTracker on your application. Metrics will be sent to Datadog by dogstatsd.
 
+### Select instrumentation
+
+All instrumentation remains enabled by default. For lower overhead, select only the CLR events and timer samples your application consumes:
+
+```cs
+using var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
+{
+    TrackerType = ClrTrackerType.Datadog,
+    EnabledFeatures = ProfilerFeature.GCEvent
+        | ProfilerFeature.ThreadPoolEvent
+        | ProfilerFeature.ContentionEvent,
+});
+tracker.EnableTracker();
+tracker.StartTracker();
+```
+
+Unselected features do not create a listener, subscribe to runtime events, start a reader, or create a timer. The same `EnabledFeatures` option is available on `ProfilerTrackerOptions` when using the core package directly.
+
 ## Debugging
 
 If you want debug behaviour, use ClrTrackerType.Logger instead. This will log metrics to ILogger.Debug.

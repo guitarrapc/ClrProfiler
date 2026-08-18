@@ -60,6 +60,7 @@ public class ClrTracker : IDisposable
                 ClrTrackerType.Custom when _options.CustomHandler is null => throw new ArgumentException($"{nameof(ClrTrackerType.Custom)}: {_options.CustomHandler} is null, you must set custom Handler."),
                 _ => throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemented."),
             };
+            profilerOptions.EnabledFeatures = _options.EnabledFeatures;
 
             _profilerTracker = new ProfilerTracker(profilerOptions);
             _enabled = true;
@@ -136,6 +137,11 @@ public class ClrTracker : IDisposable
             ProcessInfoTimerCallback = (loggerTrackerHandler.OnProcessInfoTimerAsync, loggerTrackerHandler.OnException),
             ThreadInfoTimerCallback = (loggerTrackerHandler.OnThreadInfoTimerAsync, loggerTrackerHandler.OnException),
         };
+    }
+
+    internal void Status(Action<(string Name, bool Enabled)> action)
+    {
+        _profilerTracker?.Status(action);
     }
 
     public void Dispose()
