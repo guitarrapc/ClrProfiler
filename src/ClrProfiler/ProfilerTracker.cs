@@ -14,6 +14,12 @@ public class ProfilerTrackerOptions
     public ProfilerFeature EnabledFeatures { get; set; } = ProfilerFeature.All;
 
     /// <summary>
+    /// Gets or sets factories for additional profilers managed by this tracker. Each factory is
+    /// invoked once during construction, and the tracker owns and disposes the returned profiler.
+    /// </summary>
+    public IReadOnlyList<Func<IProfiler>> AdditionalProfilerFactories { get; set; } = Array.Empty<Func<IProfiler>>();
+
+    /// <summary>
     /// CancellationTokenSource to cancel reading event channel.
     /// </summary>
     public CancellationTokenSource CancellationTokenSource { get; set; } = new CancellationTokenSource();
@@ -74,44 +80,79 @@ public class ProfilerTracker : IDisposable
             throw new ArgumentOutOfRangeException(nameof(ProfilerTrackerOptions.EnabledFeatures), enabledFeatures, "Unknown profiler feature flags were specified.");
         }
 
-        var enabledFeatureCount = BitOperations.PopCount((uint)enabledFeatures);
-        profilerStats = enabledFeatureCount == 0
+        var additionalProfilerFactories = this.options.AdditionalProfilerFactories
+            ?? throw new ArgumentNullException(nameof(ProfilerTrackerOptions.AdditionalProfilerFactories));
+        var profilerCount = checked(BitOperations.PopCount((uint)enabledFeatures) + additionalProfilerFactories.Count);
+        profilerStats = profilerCount == 0
             ? Array.Empty<IProfiler>()
-            : new IProfiler[enabledFeatureCount];
+            : new IProfiler[profilerCount];
         var profilerIndex = 0;
-        if ((enabledFeatures & ProfilerFeature.GCEvent) != 0)
+        try
         {
-            profilerStats[profilerIndex++] = new GCEventProfiler(this.options.GCEventCallback.OnSuccess, this.options.GCEventCallback.OnError);
-        }
-        if ((enabledFeatures & ProfilerFeature.ThreadPoolEvent) != 0)
-        {
-            profilerStats[profilerIndex++] = new ThreadPoolEventProfiler(this.options.ThreadPoolEventCallback.OnSuccess, this.options.ThreadPoolEventCallback.OnError);
-        }
-        if ((enabledFeatures & ProfilerFeature.ContentionEvent) != 0)
-        {
-            profilerStats[profilerIndex++] = new ContentionEventProfiler(this.options.ContentionEventCallback.OnSuccess, this.options.ContentionEventCallback.OnError);
-        }
-        if ((enabledFeatures & ProfilerFeature.ThreadInfoTimer) != 0)
-        {
-            profilerStats[profilerIndex++] = new ThreadInfoTimerProfiler(this.options.ThreadInfoTimerCallback.OnSuccess, this.options.ThreadInfoTimerCallback.OnError, this.options.TimerOption);
-        }
-        if ((enabledFeatures & ProfilerFeature.GCInfoTimer) != 0)
-        {
-            profilerStats[profilerIndex++] = new GCInfoTimerProfiler(this.options.GCInfoTimerCallback.OnSuccess, this.options.GCInfoTimerCallback.OnError, this.options.TimerOption);
-        }
-        if ((enabledFeatures & ProfilerFeature.ProcessInfoTimer) != 0)
-        {
-            profilerStats[profilerIndex++] = new ProcessInfoTimerProfiler(this.options.ProcessInfoTimerCallback.OnSuccess, this.options.ProcessInfoTimerCallback.OnError, this.options.TimerOption);
-        }
-        if (profilerIndex != profilerStats.Length)
-        {
-            for (var i = 0; i < profilerIndex; i++)
+            if ((enabledFeatures & ProfilerFeature.GCEvent) != 0)
             {
-                profilerStats[i].Dispose();
+                profilerStats[profilerIndex] = new GCEventProfiler(this.options.GCEventCallback.OnSuccess, this.options.GCEventCallback.OnError);
+                profilerIndex++;
             }
-            throw new InvalidOperationException($"Profiler feature mapping is incomplete. Expected {profilerStats.Length} profilers but created {profilerIndex}.");
+            if ((enabledFeatures & ProfilerFeature.ThreadPoolEvent) != 0)
+            {
+                profilerStats[profilerIndex] = new ThreadPoolEventProfiler(this.options.ThreadPoolEventCallback.OnSuccess, this.options.ThreadPoolEventCallback.OnError);
+                profilerIndex++;
+            }
+            if ((enabledFeatures & ProfilerFeature.ContentionEvent) != 0)
+            {
+                profilerStats[profilerIndex] = new ContentionEventProfiler(this.options.ContentionEventCallback.OnSuccess, this.options.ContentionEventCallback.OnError);
+                profilerIndex++;
+            }
+            if ((enabledFeatures & ProfilerFeature.ThreadInfoTimer) != 0)
+            {
+                profilerStats[profilerIndex] = new ThreadInfoTimerProfiler(this.options.ThreadInfoTimerCallback.OnSuccess, this.options.ThreadInfoTimerCallback.OnError, this.options.TimerOption);
+                profilerIndex++;
+            }
+            if ((enabledFeatures & ProfilerFeature.GCInfoTimer) != 0)
+            {
+                profilerStats[profilerIndex] = new GCInfoTimerProfiler(this.options.GCInfoTimerCallback.OnSuccess, this.options.GCInfoTimerCallback.OnError, this.options.TimerOption);
+                profilerIndex++;
+            }
+            if ((enabledFeatures & ProfilerFeature.ProcessInfoTimer) != 0)
+            {
+                profilerStats[profilerIndex] = new ProcessInfoTimerProfiler(this.options.ProcessInfoTimerCallback.OnSuccess, this.options.ProcessInfoTimerCallback.OnError, this.options.TimerOption);
+                profilerIndex++;
+            }
+            for (var i = 0; i < additionalProfilerFactories.Count; i++)
+            {
+                var factory = additionalProfilerFactories[i]
+                    ?? throw new ArgumentException("An additional profiler factory cannot be null.", nameof(ProfilerTrackerOptions.AdditionalProfilerFactories));
+                profilerStats[profilerIndex] = factory()
+                    ?? throw new InvalidOperationException("An additional profiler factory returned null.");
+                profilerIndex++;
+            }
+            if (profilerIndex != profilerStats.Length)
+            {
+                throw new InvalidOperationException($"Profiler mapping is incomplete. Expected {profilerStats.Length} profilers but created {profilerIndex}.");
+            }
+        }
+        catch
+        {
+            DisposeCreatedProfilers(profilerStats, profilerIndex);
+            throw;
         }
         readerTasks = new Task?[profilerStats.Length];
+    }
+
+    private static void DisposeCreatedProfilers(IProfiler[] profilers, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            try
+            {
+                profilers[i].Dispose();
+            }
+            catch
+            {
+                // Preserve the construction exception while best-effort cleanup continues.
+            }
+        }
     }
 
     internal ProfilerTracker(IProfiler[] profilers, ProfilerTrackerOptions? options = null)

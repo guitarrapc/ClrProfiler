@@ -62,6 +62,24 @@ tracker.StartTracker();
 
 Unselected features do not create a listener, subscribe to runtime events, start a reader, or create a timer. The same `EnabledFeatures` option is available on `ProfilerTrackerOptions` when using the core package directly.
 
+### Add custom profilers
+
+Implement `IProfiler` to monitor another `EventSource`, CLR event, or timer source, then register a factory alongside the built-in instrumentation:
+
+```cs
+using var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
+{
+    TrackerType = ClrTrackerType.Datadog,
+    EnabledFeatures = ProfilerFeature.GCEvent,
+    AdditionalProfilerFactories =
+    [
+        () => new MyEventSourceProfiler(...),
+    ],
+});
+```
+
+Each factory is invoked once when the tracker is enabled. The tracker owns the returned profiler and includes it in `Start`, `Stop`, `Restart`, `Cancel`, and `Dispose`. Custom profilers remain responsible for bounded, non-blocking event processing and callback error handling.
+
 ## Debugging
 
 If you want debug behaviour, use ClrTrackerType.Logger instead. This will log metrics to ILogger.Debug.
