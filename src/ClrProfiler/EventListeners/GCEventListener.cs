@@ -19,12 +19,18 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
     private readonly Func<GCEventStatistics, Task> _onEventEmit;
     private readonly Action<Exception> _onEventError;
     private readonly GCStartStateSlot[] _gcStartStates = new GCStartStateSlot[GCStartStateCapacity];
+    private long _droppedEventCount;
 
     // suspend
     private long _suspendOwner;
     private long _suspendTimeGCStart;
     private uint _suspendReason;
     private uint _suspendCount;
+
+    /// <summary>
+    /// Gets the cumulative number of events evicted from the bounded delivery channel.
+    /// </summary>
+    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
 
     public GCEventListener(Func<GCEventStatistics, Task> onEventEmit, Action<Exception> onEventError) : base("Microsoft-Windows-DotNETRuntime", EventLevel.Informational, ClrRuntimeEventKeywords.GC)
     {
@@ -36,8 +42,10 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
             SingleWriter = false,
             FullMode = BoundedChannelFullMode.DropOldest,
         };
-        _channel = Channel.CreateBounded<GCEventStatistics>(channelOption);
+        _channel = Channel.CreateBounded<GCEventStatistics>(channelOption, OnItemDropped);
     }
+
+    private void OnItemDropped(GCEventStatistics _) => Interlocked.Increment(ref _droppedEventCount);
 
     // GC Flow
     // Foreground (Blocking) GC flow (all Gen 0/1 GCs and full blocking GCs)

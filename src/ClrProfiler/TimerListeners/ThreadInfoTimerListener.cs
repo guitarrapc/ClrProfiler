@@ -17,6 +17,12 @@ public class ThreadInfoTimerListener : TimerListenerBase, IDisposable, IChannelR
     private readonly Action<Exception> _onEventError;
     private readonly TimeSpan _dueTime;
     private readonly TimeSpan _intervalPeriod;
+    private long _droppedEventCount;
+
+    /// <summary>
+    /// Gets the cumulative number of samples evicted from the bounded delivery channel.
+    /// </summary>
+    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
 
     /// <summary>
     /// Constructor
@@ -36,8 +42,10 @@ public class ThreadInfoTimerListener : TimerListenerBase, IDisposable, IChannelR
             SingleWriter = true,
             SingleReader = true,
             FullMode = BoundedChannelFullMode.DropOldest,
-        });
+        }, OnItemDropped);
     }
+
+    private void OnItemDropped(ThreadInfoStatistics _) => Interlocked.Increment(ref _droppedEventCount);
 
     protected override void OnEventWritten()
     {

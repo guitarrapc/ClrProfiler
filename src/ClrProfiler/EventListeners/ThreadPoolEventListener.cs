@@ -14,6 +14,12 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
     private readonly Channel<ThreadPoolEventStatistics> _channel;
     private readonly Func<ThreadPoolEventStatistics, Task> _onEventEmit;
     private readonly Action<Exception> _onEventError;
+    private long _droppedEventCount;
+
+    /// <summary>
+    /// Gets the cumulative number of events evicted from the bounded delivery channel.
+    /// </summary>
+    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
 
     public ThreadPoolEventListener(Func<ThreadPoolEventStatistics, Task> onEventEmit, Action<Exception> onEventError) : base("Microsoft-Windows-DotNETRuntime", EventLevel.Informational, ClrRuntimeEventKeywords.Threading)
     {
@@ -27,8 +33,10 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
             SingleWriter = false,
             FullMode = BoundedChannelFullMode.DropOldest,
         };
-        _channel = Channel.CreateBounded<ThreadPoolEventStatistics>(channelOption);
+        _channel = Channel.CreateBounded<ThreadPoolEventStatistics>(channelOption, OnItemDropped);
     }
+
+    private void OnItemDropped(ThreadPoolEventStatistics _) => Interlocked.Increment(ref _droppedEventCount);
 
     public override void EventCreatedHandler(EventWrittenEventArgs eventData)
     {
