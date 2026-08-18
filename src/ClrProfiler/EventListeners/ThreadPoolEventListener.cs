@@ -22,7 +22,9 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
         var channelOption = new BoundedChannelOptions(50)
         {
             SingleReader = true,
-            SingleWriter = true,
+            // EventListener callbacks run on the threads that emit the runtime events, so multiple
+            // application and ThreadPool threads can write concurrently.
+            SingleWriter = false,
             FullMode = BoundedChannelFullMode.DropOldest,
         };
         _channel = Channel.CreateBounded<ThreadPoolEventStatistics>(channelOption);

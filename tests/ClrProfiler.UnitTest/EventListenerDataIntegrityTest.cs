@@ -1007,6 +1007,60 @@ public class EventListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task ThreadPoolEventListenerPreservesCapacityBoundedEventsFromConcurrentWriters()
+    {
+        const int writerCount = 5;
+        const int eventsPerWriter = ChannelCapacity / writerCount;
+        var actual = new List<ThreadPoolEventStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var start = new ManualResetEventSlim();
+        using var listener = new TestableThreadPoolEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == ChannelCapacity)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        var writers = new Thread[writerCount];
+
+        for (var writerIndex = 0; writerIndex < writerCount; writerIndex++)
+        {
+            var capturedWriterIndex = writerIndex;
+            writers[writerIndex] = new Thread(() =>
+            {
+                start.Wait();
+                for (var eventIndex = 0; eventIndex < eventsPerWriter; eventIndex++)
+                {
+                    var value = (uint)((capturedWriterIndex * eventsPerWriter) + eventIndex + 1);
+                    listener.ProcessEvent("ThreadPoolWorkerThreadStop_V1", DateTime.UnixEpoch.AddTicks(value), [value]);
+                }
+            });
+            writers[writerIndex].Start();
+        }
+
+        start.Set();
+        foreach (var writer in writers)
+        {
+            if (!writer.Join(TestTimeout))
+            {
+                throw new TimeoutException("A concurrent ThreadPool event writer did not complete.");
+            }
+        }
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(actual).Count().IsEqualTo(ChannelCapacity);
+        var activeWorkerCounts = actual
+            .Select(value => value.ThreadPoolWorker.ActiveWrokerThreads)
+            .Order()
+            .ToArray();
+        await Assert.That(activeWorkerCounts).IsEquivalentTo(Enumerable.Range(1, ChannelCapacity).Select(value => (uint)value));
+    }
+
+    [Test]
     public async Task ThreadPoolEventListenerSupportedPayloadHotPathsDoNotAllocate()
     {
         using var listener = new TestableThreadPoolEventListener(_ => Task.CompletedTask);
