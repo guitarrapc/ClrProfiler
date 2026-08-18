@@ -1,6 +1,5 @@
 using ClrProfiler.Statistics;
 using System.Diagnostics.Tracing;
-using System.Threading.Channels;
 
 namespace ClrProfiler.EventListeners;
 
@@ -15,11 +14,9 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
     // allowing indices separated by the table capacity to remain active together.
     private const int GCStartStateCapacity = 64;
 
-    private readonly Channel<GCEventStatistics> _channel;
-    private readonly Func<GCEventStatistics, Task> _onEventEmit;
+    private readonly BoundedChannelDispatcher<GCEventStatistics> _dispatcher;
     private readonly Action<Exception> _onEventError;
     private readonly GCStartStateSlot[] _gcStartStates = new GCStartStateSlot[GCStartStateCapacity];
-    private long _droppedEventCount;
 
     // suspend
     private long _suspendOwner;
@@ -30,22 +27,13 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
     /// <summary>
     /// Gets the cumulative number of events evicted from the bounded delivery channel.
     /// </summary>
-    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
+    public long DroppedEventCount => _dispatcher.DroppedEventCount;
 
     public GCEventListener(Func<GCEventStatistics, Task> onEventEmit, Action<Exception> onEventError) : base("Microsoft-Windows-DotNETRuntime", EventLevel.Informational, ClrRuntimeEventKeywords.GC)
     {
-        _onEventEmit = onEventEmit;
         _onEventError = onEventError;
-        var channelOption = new BoundedChannelOptions(50)
-        {
-            SingleReader = true,
-            SingleWriter = false,
-            FullMode = BoundedChannelFullMode.DropOldest,
-        };
-        _channel = Channel.CreateBounded<GCEventStatistics>(channelOption, OnItemDropped);
+        _dispatcher = new BoundedChannelDispatcher<GCEventStatistics>(50, singleWriter: false, onEventEmit, onEventError);
     }
-
-    private void OnItemDropped(GCEventStatistics _) => Interlocked.Increment(ref _droppedEventCount);
 
     // GC Flow
     // Foreground (Blocking) GC flow (all Gen 0/1 GCs and full blocking GCs)
@@ -127,7 +115,7 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
                 var stat = new GCStartEndStatistics(gcIndex, startState.Type, generation, startState.Reason, duration, startState.StartTime, timeGCEnd);
 
                 // write to channel
-                _channel.Writer.TryWrite(new GCEventStatistics(GCEventType.GCStartEnd, stat, new()));
+                _dispatcher.TryWrite(new GCEventStatistics(GCEventType.GCStartEnd, stat, new()));
             }
             else if (eventName.StartsWith("GCSuspendEEBegin", StringComparison.OrdinalIgnoreCase))
             {
@@ -151,7 +139,7 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
                 var stat = new GCSuspendStatistics(duration, suspendReason, suspendCount);
 
                 // write to channel
-                _channel.Writer.TryWrite(new GCEventStatistics(GCEventType.GCSuspend, new(), stat));
+                _dispatcher.TryWrite(new GCEventStatistics(GCEventType.GCSuspend, new(), stat));
             }
         }
         catch (Exception ex)
@@ -336,31 +324,5 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
         Dropped,
     }
 
-    public async ValueTask OnReadResultAsync(CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            // Keep the reader alive across Stop/Restart. Cancellation owns its lifetime.
-            while (await _channel.Reader.WaitToReadAsync(cancellationToken))
-            {
-                while (_channel.Reader.TryRead(out var value))
-                {
-                    if (_onEventEmit != null)
-                    {
-                        try
-                        {
-                            await _onEventEmit.Invoke(value);
-                        }
-                        catch (Exception ex)
-                        {
-                            _onEventError.Invoke(ex);
-                        }
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
+    public ValueTask OnReadResultAsync(CancellationToken cancellationToken = default) => _dispatcher.ReadAllAsync(cancellationToken);
 }
