@@ -1009,8 +1009,9 @@ public class EventListenerDataIntegrityTest
     [Test]
     public async Task ThreadPoolEventListenerPreservesCapacityBoundedEventsFromConcurrentWriters()
     {
-        const int writerCount = 5;
-        const int eventsPerWriter = ChannelCapacity / writerCount;
+        var writerCount = 5;
+        await Assert.That(ChannelCapacity % writerCount).IsEqualTo(0);
+        var eventsPerWriter = ChannelCapacity / writerCount;
         var actual = new List<ThreadPoolEventStatistics>(ChannelCapacity);
         using var cts = new CancellationTokenSource(TestTimeout);
         using var start = new ManualResetEventSlim();
