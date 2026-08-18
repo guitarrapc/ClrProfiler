@@ -1,7 +1,6 @@
 using ClrProfiler.Statistics;
 using System.Diagnostics.Tracing;
 using System.Globalization;
-using System.Threading.Channels;
 
 namespace ClrProfiler.EventListeners;
 
@@ -11,32 +10,21 @@ namespace ClrProfiler.EventListeners;
 /// <remarks>payload: https://docs.microsoft.com/en-us/dotnet/framework/performance/thread-pool-etw-events </remarks>
 public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
 {
-    private readonly Channel<ThreadPoolEventStatistics> _channel;
-    private readonly Func<ThreadPoolEventStatistics, Task> _onEventEmit;
+    private readonly BoundedChannelDispatcher<ThreadPoolEventStatistics> _dispatcher;
     private readonly Action<Exception> _onEventError;
-    private long _droppedEventCount;
 
     /// <summary>
     /// Gets the cumulative number of events evicted from the bounded delivery channel.
     /// </summary>
-    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
+    public long DroppedEventCount => _dispatcher.DroppedEventCount;
 
     public ThreadPoolEventListener(Func<ThreadPoolEventStatistics, Task> onEventEmit, Action<Exception> onEventError) : base("Microsoft-Windows-DotNETRuntime", EventLevel.Informational, ClrRuntimeEventKeywords.Threading)
     {
-        _onEventEmit = onEventEmit;
         _onEventError = onEventError;
-        var channelOption = new BoundedChannelOptions(50)
-        {
-            SingleReader = true,
-            // EventListener callbacks run on the threads that emit the runtime events, so multiple
-            // application and ThreadPool threads can write concurrently.
-            SingleWriter = false,
-            FullMode = BoundedChannelFullMode.DropOldest,
-        };
-        _channel = Channel.CreateBounded<ThreadPoolEventStatistics>(channelOption, OnItemDropped);
+        // EventListener callbacks run on the threads that emit the runtime events, so multiple
+        // application and ThreadPool threads can write concurrently.
+        _dispatcher = new BoundedChannelDispatcher<ThreadPoolEventStatistics>(50, singleWriter: false, onEventEmit, onEventError);
     }
-
-    private void OnItemDropped(ThreadPoolEventStatistics _) => Interlocked.Increment(ref _droppedEventCount);
 
     public override void EventCreatedHandler(EventWrittenEventArgs eventData)
     {
@@ -63,7 +51,7 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
                 var stat = new ThreadPoolEventStatistics(ThreadPoolStatisticType.ThreadPoolAdjustment, new(), new ThreadPoolAdjustmentStatistics(time, averageThroughput, newWorkerThreadCount, reason));
 
                 // write to channel
-                _channel.Writer.TryWrite(stat);
+                _dispatcher.TryWrite(stat);
             }
             else if (eventName?.StartsWith("ThreadPoolWorkerThreadStop", StringComparison.OrdinalIgnoreCase) ?? false)
             {
@@ -73,7 +61,7 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
                 var stat = new ThreadPoolEventStatistics(ThreadPoolStatisticType.ThreadPoolWorkerStartStop, new ThreadPoolWorkerStatistics(time, activeWorkerThreadCount), new());
 
                 // write to channel
-                _channel.Writer.TryWrite(stat);
+                _dispatcher.TryWrite(stat);
             }
         }
         catch (Exception ex)
@@ -141,31 +129,5 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
         };
     }
 
-    public async ValueTask OnReadResultAsync(CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            // Keep the reader alive across Stop/Restart. Cancellation owns its lifetime.
-            while (await _channel.Reader.WaitToReadAsync(cancellationToken))
-            {
-                while (_channel.Reader.TryRead(out var value))
-                {
-                    if (_onEventEmit != null)
-                    {
-                        try
-                        {
-                            await _onEventEmit.Invoke(value);
-                        }
-                        catch (Exception ex)
-                        {
-                            _onEventError.Invoke(ex);
-                        }
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
+    public ValueTask OnReadResultAsync(CancellationToken cancellationToken = default) => _dispatcher.ReadAllAsync(cancellationToken);
 }

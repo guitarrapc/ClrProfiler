@@ -13,12 +13,10 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
 
     public ChannelReader<GCInfoStatistics>? Reader { get; set; }
 
-    private readonly Channel<GCInfoStatistics> _channel;
-    private readonly Func<GCInfoStatistics, Task> _onEventEmit;
+    private readonly BoundedChannelDispatcher<GCInfoStatistics> _dispatcher;
     private readonly Action<Exception> _onEventError;
     private readonly TimeSpan _dueTime;
     private readonly TimeSpan _intervalPeriod;
-    private long _droppedEventCount;
 
     private readonly Func<int, ulong>? _getGenerationSizeDelegate;
     private readonly Func<int>? _getLastGCPercentTimeInGC;
@@ -26,7 +24,7 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
     /// <summary>
     /// Gets the cumulative number of samples evicted from the bounded delivery channel.
     /// </summary>
-    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
+    public long DroppedEventCount => _dispatcher.DroppedEventCount;
 
     /// <summary>
     /// Constructor
@@ -37,16 +35,10 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
     /// <param name="intervalPeriod">The time inteval between the invocation of timer.</param>
     public GCInfoTimerListener(Func<GCInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, TimeSpan dueTime, TimeSpan intervalPeriod)
     {
-        _onEventEmit = onEventEmit;
         _onEventError = onEventError;
         _dueTime = dueTime;
         _intervalPeriod = intervalPeriod;
-        _channel = Channel.CreateBounded<GCInfoStatistics>(new BoundedChannelOptions(50)
-        {
-            SingleWriter = true,
-            SingleReader = true,
-            FullMode = BoundedChannelFullMode.DropOldest,
-        }, OnItemDropped);
+        _dispatcher = new BoundedChannelDispatcher<GCInfoStatistics>(50, singleWriter: true, onEventEmit, onEventError);
 
         var methodGetGenerationSize = typeof(GC).GetMethod("GetGenerationSize", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy);
         _getGenerationSizeDelegate = (Func<int, ulong>?)methodGetGenerationSize?.CreateDelegate(typeof(Func<int, ulong>));
@@ -54,8 +46,6 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
         var methodGetLastGCPercentTimeInGC = typeof(GC).GetMethod("GetLastGCPercentTimeInGC", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy);
         _getLastGCPercentTimeInGC = (Func<int>?)methodGetLastGCPercentTimeInGC?.CreateDelegate(typeof(Func<int>));
     }
-
-    private void OnItemDropped(GCInfoStatistics _) => Interlocked.Increment(ref _droppedEventCount);
 
     protected override void OnEventWritten()
     {
@@ -94,33 +84,7 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
         timer?.Dispose();
     }
 
-    public async ValueTask OnReadResultAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            // Keep the reader alive across Stop/Restart. Cancellation owns its lifetime.
-            while (await _channel.Reader.WaitToReadAsync(cancellationToken))
-            {
-                while (_channel.Reader.TryRead(out var value))
-                {
-                    if (_onEventEmit != null)
-                    {
-                        try
-                        {
-                            await _onEventEmit.Invoke(value);
-                        }
-                        catch (Exception ex)
-                        {
-                            _onEventError.Invoke(ex);
-                        }
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
+    public ValueTask OnReadResultAsync(CancellationToken cancellationToken) => _dispatcher.ReadAllAsync(cancellationToken);
 
     public override void EventCreatedHandler()
     {
@@ -144,7 +108,7 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
             var timeInGc = _getLastGCPercentTimeInGC?.Invoke() ?? 0;
             var stat = new GCInfoStatistics(date, gcmode, compactionMode, latencyMode, heapSize, totalAllocationBytes, gen0Count, gen1Count, gen2Count, timeInGc, gen0Size, gen1Size, gen2Size, lohSize);
 
-            _channel.Writer.TryWrite(stat);
+            _dispatcher.TryWrite(stat);
         }
         catch (Exception ex)
         {

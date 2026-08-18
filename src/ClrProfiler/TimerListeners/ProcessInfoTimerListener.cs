@@ -19,17 +19,15 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
 
     public ChannelReader<ProcessInfoStatistics>? Reader { get; set; }
 
-    private readonly Channel<ProcessInfoStatistics> _channel;
-    private readonly Func<ProcessInfoStatistics, Task> _onEventEmit;
+    private readonly BoundedChannelDispatcher<ProcessInfoStatistics> _dispatcher;
     private readonly Action<Exception> _onEventError;
     private readonly TimeSpan _dueTime;
     private readonly TimeSpan _intervalPeriod;
-    private long _droppedEventCount;
 
     /// <summary>
     /// Gets the cumulative number of samples evicted from the bounded delivery channel.
     /// </summary>
-    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
+    public long DroppedEventCount => _dispatcher.DroppedEventCount;
 
     /// <summary>
     /// Constructor
@@ -40,21 +38,13 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
     /// <param name="intervalPeriod">The time inteval between the invocation of timer.</param>
     public ProcessInfoTimerListener(Func<ProcessInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, TimeSpan dueTime, TimeSpan intervalPeriod)
     {
-        _onEventEmit = onEventEmit;
         _onEventError = onEventError;
         _dueTime = dueTime;
         _intervalPeriod = intervalPeriod;
         _oldCPUTime = _process.TotalProcessorTime;
         _lastMonitorTime = DateTime.UtcNow;
-        _channel = Channel.CreateBounded<ProcessInfoStatistics>(new BoundedChannelOptions(50)
-        {
-            SingleWriter = true,
-            SingleReader = true,
-            FullMode = BoundedChannelFullMode.DropOldest,
-        }, OnItemDropped);
+        _dispatcher = new BoundedChannelDispatcher<ProcessInfoStatistics>(50, singleWriter: true, onEventEmit, onEventError);
     }
-
-    private void OnItemDropped(ProcessInfoStatistics _) => Interlocked.Increment(ref _droppedEventCount);
 
     protected override void OnEventWritten()
     {
@@ -94,33 +84,7 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
         _process.Dispose();
     }
 
-    public async ValueTask OnReadResultAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            // Keep the reader alive across Stop/Restart. Cancellation owns its lifetime.
-            while (await _channel.Reader.WaitToReadAsync(cancellationToken))
-            {
-                while (_channel.Reader.TryRead(out var value))
-                {
-                    if (_onEventEmit != null)
-                    {
-                        try
-                        {
-                            await _onEventEmit.Invoke(value);
-                        }
-                        catch (Exception ex)
-                        {
-                            _onEventError.Invoke(ex);
-                        }
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
+    public ValueTask OnReadResultAsync(CancellationToken cancellationToken) => _dispatcher.ReadAllAsync(cancellationToken);
 
     public override void EventCreatedHandler()
     {
@@ -146,7 +110,7 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
             var privateBytes = _process.PrivateMemorySize64;
             var stat = new ProcessInfoStatistics(date, _cpu, workingSet, privateBytes);
 
-            _channel.Writer.TryWrite(stat);
+            _dispatcher.TryWrite(stat);
         }
         catch (Exception ex)
         {
