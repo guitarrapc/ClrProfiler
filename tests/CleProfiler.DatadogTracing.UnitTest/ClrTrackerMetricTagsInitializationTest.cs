@@ -18,12 +18,24 @@ public class ClrTrackerMetricTagsInitializationTest
                 EnabledFeatures = ProfilerFeature.ThreadPoolEvent,
             },
             static () => { });
-        var names = new List<string>();
+        tracker.EnableTracker();
+
+        await Assert.That(tracker.ProfilerCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task ProfilerCount_AfterDispose_ThrowsObjectDisposedException()
+    {
+        using var loggerFactory = TestHelpers.CreateLoggerFactory();
+        var tracker = new ClrTracker(
+            loggerFactory,
+            new ClrTrackerOptions { TrackerType = ClrTrackerType.Logger },
+            static () => { });
 
         tracker.EnableTracker();
-        tracker.Status(status => names.Add(status.Name));
+        tracker.Dispose();
 
-        await Assert.That(names).IsEquivalentTo([nameof(ThreadPoolEventProfiler)]);
+        await Assert.That(() => tracker.ProfilerCount).Throws<ObjectDisposedException>();
     }
 
     [Test]

@@ -103,6 +103,14 @@ public class ProfilerTracker : IDisposable
         {
             profilerStats[profilerIndex++] = new ProcessInfoTimerProfiler(this.options.ProcessInfoTimerCallback.OnSuccess, this.options.ProcessInfoTimerCallback.OnError, this.options.TimerOption);
         }
+        if (profilerIndex != profilerStats.Length)
+        {
+            for (var i = 0; i < profilerIndex; i++)
+            {
+                profilerStats[i].Dispose();
+            }
+            throw new InvalidOperationException($"Profiler feature mapping is incomplete. Expected {profilerStats.Length} profilers but created {profilerIndex}.");
+        }
         readerTasks = new Task?[profilerStats.Length];
     }
 

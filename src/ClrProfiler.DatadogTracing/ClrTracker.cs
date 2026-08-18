@@ -139,9 +139,23 @@ public class ClrTracker : IDisposable
         };
     }
 
-    internal void Status(Action<(string Name, bool Enabled)> action)
+    internal int ProfilerCount
     {
-        _profilerTracker?.Status(action);
+        get
+        {
+            lock (_lifecycleLock)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (!_enabled)
+                {
+                    return 0;
+                }
+
+                var profilerCount = 0;
+                _profilerTracker!.Status(_ => profilerCount++);
+                return profilerCount;
+            }
+        }
     }
 
     public void Dispose()
