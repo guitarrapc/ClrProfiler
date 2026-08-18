@@ -8,6 +8,10 @@ public record ClrTrackerOptions
     };
 
     /// <summary>
+    /// Selects the CLR instrumentation to create and run. Defaults to all features for compatibility.
+    /// </summary>
+    public ProfilerFeature EnabledFeatures { get; init; } = ProfilerFeature.All;
+    /// <summary>
     /// Select the type of ClrTracker to use. If Custom is selected, CustomHandler must be set.
     /// </summary>
     public required ClrTrackerType TrackerType { get; init; }

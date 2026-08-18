@@ -1,3 +1,4 @@
+using ClrProfiler;
 using ClrProfiler.DatadogTracing;
 
 namespace CleProfiler.DatadogTracing.UnitTest;
@@ -5,6 +6,38 @@ namespace CleProfiler.DatadogTracing.UnitTest;
 [NotInParallel]
 public class ClrTrackerMetricTagsInitializationTest
 {
+    [Test]
+    public async Task EnableTracker_ForwardsEnabledFeaturesToProfilerTracker()
+    {
+        using var loggerFactory = TestHelpers.CreateLoggerFactory();
+        using var tracker = new ClrTracker(
+            loggerFactory,
+            new ClrTrackerOptions
+            {
+                TrackerType = ClrTrackerType.Logger,
+                EnabledFeatures = ProfilerFeature.ThreadPoolEvent,
+            },
+            static () => { });
+        tracker.EnableTracker();
+
+        await Assert.That(tracker.ProfilerCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task ProfilerCount_AfterDispose_ThrowsObjectDisposedException()
+    {
+        using var loggerFactory = TestHelpers.CreateLoggerFactory();
+        var tracker = new ClrTracker(
+            loggerFactory,
+            new ClrTrackerOptions { TrackerType = ClrTrackerType.Logger },
+            static () => { });
+
+        tracker.EnableTracker();
+        tracker.Dispose();
+
+        await Assert.That(() => tracker.ProfilerCount).Throws<ObjectDisposedException>();
+    }
+
     [Test]
     [Arguments(ClrTrackerType.Datadog)]
     [Arguments(ClrTrackerType.Logger)]

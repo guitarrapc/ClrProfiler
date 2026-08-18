@@ -1,4 +1,5 @@
 using ClrProfiler.Statistics;
+using System.Numerics;
 
 namespace ClrProfiler;
 
@@ -7,6 +8,11 @@ namespace ClrProfiler;
 /// </summary>
 public class ProfilerTrackerOptions
 {
+    /// <summary>
+    /// Gets or sets the instrumentation to create and run. Defaults to all features for compatibility.
+    /// </summary>
+    public ProfilerFeature EnabledFeatures { get; set; } = ProfilerFeature.All;
+
     /// <summary>
     /// CancellationTokenSource to cancel reading event channel.
     /// </summary>
@@ -62,16 +68,49 @@ public class ProfilerTracker : IDisposable
     public ProfilerTracker(ProfilerTrackerOptions? options = null)
     {
         this.options = options ?? new ProfilerTrackerOptions();
-        profilerStats = [
-            // event
-            new GCEventProfiler(this.options.GCEventCallback.OnSuccess, this.options.GCEventCallback.OnError),
-            new ThreadPoolEventProfiler(this.options.ThreadPoolEventCallback.OnSuccess, this.options.ThreadPoolEventCallback.OnError),
-            new ContentionEventProfiler(this.options.ContentionEventCallback.OnSuccess, this.options.ContentionEventCallback.OnError),
-            // timer
-            new ThreadInfoTimerProfiler(this.options.ThreadInfoTimerCallback.OnSuccess, this.options.ThreadInfoTimerCallback.OnError, this.options.TimerOption),
-            new GCInfoTimerProfiler(this.options.GCInfoTimerCallback.OnSuccess, this.options.GCInfoTimerCallback.OnError, this.options.TimerOption),
-            new ProcessInfoTimerProfiler(this.options.ProcessInfoTimerCallback.OnSuccess, this.options.ProcessInfoTimerCallback.OnError, this.options.TimerOption),
-        ];
+        var enabledFeatures = this.options.EnabledFeatures;
+        if ((enabledFeatures & ~ProfilerFeature.All) != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ProfilerTrackerOptions.EnabledFeatures), enabledFeatures, "Unknown profiler feature flags were specified.");
+        }
+
+        var enabledFeatureCount = BitOperations.PopCount((uint)enabledFeatures);
+        profilerStats = enabledFeatureCount == 0
+            ? Array.Empty<IProfiler>()
+            : new IProfiler[enabledFeatureCount];
+        var profilerIndex = 0;
+        if ((enabledFeatures & ProfilerFeature.GCEvent) != 0)
+        {
+            profilerStats[profilerIndex++] = new GCEventProfiler(this.options.GCEventCallback.OnSuccess, this.options.GCEventCallback.OnError);
+        }
+        if ((enabledFeatures & ProfilerFeature.ThreadPoolEvent) != 0)
+        {
+            profilerStats[profilerIndex++] = new ThreadPoolEventProfiler(this.options.ThreadPoolEventCallback.OnSuccess, this.options.ThreadPoolEventCallback.OnError);
+        }
+        if ((enabledFeatures & ProfilerFeature.ContentionEvent) != 0)
+        {
+            profilerStats[profilerIndex++] = new ContentionEventProfiler(this.options.ContentionEventCallback.OnSuccess, this.options.ContentionEventCallback.OnError);
+        }
+        if ((enabledFeatures & ProfilerFeature.ThreadInfoTimer) != 0)
+        {
+            profilerStats[profilerIndex++] = new ThreadInfoTimerProfiler(this.options.ThreadInfoTimerCallback.OnSuccess, this.options.ThreadInfoTimerCallback.OnError, this.options.TimerOption);
+        }
+        if ((enabledFeatures & ProfilerFeature.GCInfoTimer) != 0)
+        {
+            profilerStats[profilerIndex++] = new GCInfoTimerProfiler(this.options.GCInfoTimerCallback.OnSuccess, this.options.GCInfoTimerCallback.OnError, this.options.TimerOption);
+        }
+        if ((enabledFeatures & ProfilerFeature.ProcessInfoTimer) != 0)
+        {
+            profilerStats[profilerIndex++] = new ProcessInfoTimerProfiler(this.options.ProcessInfoTimerCallback.OnSuccess, this.options.ProcessInfoTimerCallback.OnError, this.options.TimerOption);
+        }
+        if (profilerIndex != profilerStats.Length)
+        {
+            for (var i = 0; i < profilerIndex; i++)
+            {
+                profilerStats[i].Dispose();
+            }
+            throw new InvalidOperationException($"Profiler feature mapping is incomplete. Expected {profilerStats.Length} profilers but created {profilerIndex}.");
+        }
         readerTasks = new Task?[profilerStats.Length];
     }
 
