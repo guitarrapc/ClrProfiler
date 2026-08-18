@@ -122,9 +122,9 @@ public class ProfilerTracker : IDisposable
             for (var i = 0; i < additionalProfilerFactories.Count; i++)
             {
                 var factory = additionalProfilerFactories[i]
-                    ?? throw new ArgumentException("An additional profiler factory cannot be null.", nameof(ProfilerTrackerOptions.AdditionalProfilerFactories));
+                    ?? throw new ArgumentException($"Additional profiler factory at index {i} cannot be null.", nameof(ProfilerTrackerOptions.AdditionalProfilerFactories));
                 profilerStats[profilerIndex] = factory()
-                    ?? throw new InvalidOperationException("An additional profiler factory returned null.");
+                    ?? throw new InvalidOperationException($"Additional profiler factory at index {i} returned null.");
                 profilerIndex++;
             }
             if (profilerIndex != profilerStats.Length)

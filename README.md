@@ -80,7 +80,7 @@ tracker.EnableTracker();
 tracker.StartTracker();
 ```
 
-Each factory is invoked once when `ProfilerTracker` is constructed, which happens during `ClrTracker.EnableTracker()` when using the Datadog adapter. The tracker owns the returned profiler and includes it in `Start`, `Stop`, `Restart`, `Cancel`, and `Dispose`. Custom profilers remain responsible for bounded, non-blocking event processing and callback error handling.
+Each factory is invoked once when `ProfilerTracker` is constructed. When using `ClrTracker`, this happens inside `EnableTracker()` for Datadog, Logger, and Custom tracker types. The tracker owns the returned profiler and includes it in `Start`, `Stop`, `Restart`, `Cancel`, and `Dispose`. Custom profilers remain responsible for bounded, non-blocking event processing and callback error handling.
 
 ## Debugging
 
