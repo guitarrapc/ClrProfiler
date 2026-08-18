@@ -138,7 +138,7 @@ tracker.StartTracker();
 
 This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
 
-Contention callbacks aggregate events by contention flag before dispatch, so one `ContentionEventStatistics` can represent many events. This keeps contention bursts intact when callback delivery is slower than event ingestion, without blocking the event producer.
+Contention callbacks place samples in a fixed-capacity MPSC queue and aggregate them by contention flag on the single reader. One `ContentionEventStatistics` can therefore represent many accepted events, while its `Count`, duration sum, maximum, and timestamp always come from the same delivery window.
 
 | Member | Meaning |
 | --- | --- |
@@ -148,21 +148,21 @@ Contention callbacks aggregate events by contention flag before dispatch, so one
 | `DurationNsMean` | `DurationNsSum / Count`, or 0 when nothing was aggregated. |
 | `Time` | Timestamp of the newest event observed for the flag. The duration fields summarize the whole window, so they are not tied to this timestamp. |
 
-Every event contributes to `Count` and `DurationNsSum`, so no duration is discarded no matter how large the burst. Durations accumulate as whole picoseconds internally, which keeps the per-event fold to a single lock-free add; non-finite or negative payload durations contribute 0 while still being counted.
+The producer never waits for the reader and does not use an unbounded spin loop. Queue reservation has a fixed retry limit; a sample is rejected when the queue is full or that limit is exhausted. `ContentionEventListener.DroppedEventCount` exposes the cumulative rejected count. Durations of accepted samples accumulate as whole picoseconds; non-finite or negative durations contribute 0 while still being counted.
 
-Aggregates are reset per dispatch. A single event's duration may be attributed to the dispatch immediately before the one carrying its count, so an individual value can be skewed by one event under concurrency. Totals across dispatches are exact.
+Aggregates are reset per dispatch. For accepted samples, every individual value and the totals across dispatches are exact.
 
-Stopping the profiler seals whatever is still aggregated and dispatches it as its own value, keeping the timestamp of the events it represents. Nothing observed before a stop is discarded, and nothing carries over into the events that arrive after a restart.
+Stopping the profiler advances the queue generation. Samples accepted before a stop are dispatched separately from samples accepted after a restart, even when the reader drains both generations later.
 
 A dispatch happens every time the reader drains, which is far more often than a metrics backend flushes. Contention metrics therefore only use statsd types that aggregate correctly over many submissions within one flush interval:
 
 | Metric | statsd type | Value | Why the type |
 | --- | --- | --- | --- |
-| `clr_diagnostics_event.contention.startend_count` | counter | `Count` | Counts add, so every dispatch is kept. |
-| `clr_diagnostics_event.contention.startend_duration_ns_sum` | counter | `DurationNsSum` | Sums add, so no duration is discarded. |
-| `clr_diagnostics_event.contention.startend_duration_ns_max` | histogram | `DurationNsMax` | The maximum of the submitted window maxima is the true maximum for the interval. |
+| `clr_diagnostics_event.contention.startend_count` | counter | `Count` | Counts add across every accepted dispatch. |
+| `clr_diagnostics_event.contention.startend_duration_ns_sum` | counter | `DurationNsSum` | Sums add across accepted samples. |
+| `clr_diagnostics_event.contention.startend_duration_ns_max` | histogram | `DurationNsMax` | The maximum of the accepted window maxima is the accepted maximum for the interval. |
 
-Read `startend_duration_ns_max.max` for the worst contention in an interval, and `startend_duration_ns_sum / startend_count` for the exact mean duration. The `.avg`, `.count`, and percentile series derived from the histogram describe window maxima rather than individual contentions, so do not read them as durations.
+Read `startend_duration_ns_max.max` for the worst accepted contention in an interval, and `startend_duration_ns_sum / startend_count` for the exact mean of accepted samples. The `.avg`, `.count`, and percentile series derived from the histogram describe window maxima rather than individual contentions, so do not read them as durations.
 
 A gauge is deliberately not used for any of these. A gauge keeps only the last value submitted within a flush interval, which would discard every aggregation window but one.
 

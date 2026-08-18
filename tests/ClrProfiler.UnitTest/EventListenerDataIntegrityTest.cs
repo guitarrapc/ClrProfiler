@@ -603,19 +603,21 @@ public class EventListenerDataIntegrityTest
     }
 
     [Test]
-    public async Task ContentionEventListenerAtomicallyAggregatesConcurrentProducers()
+    public async Task ContentionEventListenerKeepsOrReportsEveryConcurrentProducerSample()
     {
         const int eventCount = 10_000;
         using var cts = new CancellationTokenSource(TestTimeout);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var actual = new List<ContentionEventStatistics>(2);
         var observedCount = 0L;
+        var expectedCount = long.MaxValue;
         using var listener = new TestableContentionEventListener(value =>
         {
             actual.Add(value);
             observedCount += value.Count;
-            if (observedCount == eventCount)
+            if (observedCount == Volatile.Read(ref expectedCount))
             {
-                cts.Cancel();
+                completed.TrySetResult();
             }
             return Task.CompletedTask;
         });
@@ -626,37 +628,43 @@ public class EventListenerDataIntegrityTest
         Parallel.For(0, eventCount, i =>
             listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(i), i % 2 == 0 ? managedPayload : nativePayload));
 
+        Volatile.Write(ref expectedCount, eventCount - listener.DroppedEventCount);
         listener.EnableReading();
-        await listener.OnReadResultAsync(cts.Token);
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        await cts.CancelAsync();
+        await readerTask;
 
-        await Assert.That(actual.Sum(value => value.Count)).IsEqualTo(eventCount);
-        await Assert.That(actual.Where(value => value.Flag == 0).Sum(value => value.Count)).IsEqualTo(eventCount / 2);
-        await Assert.That(actual.Where(value => value.Flag == 0).Sum(value => value.DurationNsSum)).IsEqualTo(eventCount / 2 * 2D);
+        await Assert.That(actual.Sum(value => value.Count) + listener.DroppedEventCount).IsEqualTo(eventCount);
+        await Assert.That(actual.Where(value => value.Flag == 0).Sum(value => value.DurationNsSum))
+            .IsEqualTo(actual.Where(value => value.Flag == 0).Sum(value => value.Count) * 2D);
         await Assert.That(actual.Where(value => value.Flag == 0).All(value => value.DurationNsMax == 2D)).IsTrue();
-        await Assert.That(actual.Where(value => value.Flag == 1).Sum(value => value.Count)).IsEqualTo(eventCount / 2);
-        await Assert.That(actual.Where(value => value.Flag == 1).Sum(value => value.DurationNsSum)).IsEqualTo(eventCount / 2 * 3D);
+        await Assert.That(actual.Where(value => value.Flag == 1).Sum(value => value.DurationNsSum))
+            .IsEqualTo(actual.Where(value => value.Flag == 1).Sum(value => value.Count) * 3D);
         await Assert.That(actual.Where(value => value.Flag == 1).All(value => value.DurationNsMax == 3D)).IsTrue();
     }
 
     [Test]
-    public async Task ContentionEventListenerDoesNotLoseCountsOrDurationsWhileReaderDrains()
+    public async Task ContentionEventListenerKeepsWindowsConsistentWhileReaderDrains()
     {
         const int eventCount = 10_000;
         const double durationNs = 2D;
         using var cts = new CancellationTokenSource(TestTimeout);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         // Only the single reader loop invokes the callback, and the reader task is awaited
         // before these are read, so plain accumulation is safe here.
         var observedCount = 0L;
         var observedDurationSum = 0D;
         var observedDurationMax = 0D;
+        var expectedCount = long.MaxValue;
         using var listener = new TestableContentionEventListener(value =>
         {
             observedCount += value.Count;
             observedDurationSum += value.DurationNsSum;
             observedDurationMax = Math.Max(observedDurationMax, value.DurationNsMax);
-            if (observedCount == eventCount)
+            if (observedCount == Volatile.Read(ref expectedCount))
             {
-                cts.Cancel();
+                completed.TrySetResult();
             }
             return Task.CompletedTask;
         });
@@ -666,13 +674,85 @@ public class EventListenerDataIntegrityTest
         var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
         Parallel.For(0, eventCount, i =>
             listener.ProcessEvent("ContentionStop_V1", DateTime.UnixEpoch.AddTicks(i), payload));
+        Volatile.Write(ref expectedCount, eventCount - listener.DroppedEventCount);
+        if (Volatile.Read(ref observedCount) == expectedCount)
+        {
+            completed.TrySetResult();
+        }
+        await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        await cts.CancelAsync();
         await readerTask;
 
-        await Assert.That(observedCount).IsEqualTo(eventCount);
-        // Each flush may be skewed by one event against its own count, but no duration may be
-        // dropped: the total across every flush has to match the total that was produced.
-        await Assert.That(observedDurationSum).IsEqualTo(eventCount * durationNs);
+        await Assert.That(observedCount + listener.DroppedEventCount).IsEqualTo(eventCount);
+        await Assert.That(observedDurationSum).IsEqualTo(observedCount * durationNs);
         await Assert.That(observedDurationMax).IsEqualTo(durationNs);
+    }
+
+    [Test]
+    public async Task ContentionEventListenerKeepsCountAndDurationInTheSameFlushWindow()
+    {
+        const int eventCount = 10_000;
+        const double durationNs = 2D;
+        using var cts = new CancellationTokenSource(TestTimeout);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var observedCount = 0L;
+        var inconsistentWindow = false;
+        var expectedCount = long.MaxValue;
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            observedCount += value.Count;
+            inconsistentWindow |= value.DurationNsSum != value.Count * durationNs;
+            if (observedCount == Volatile.Read(ref expectedCount))
+            {
+                completed.TrySetResult();
+            }
+            return Task.CompletedTask;
+        });
+        object?[] payload = [(byte)0, 0U, durationNs];
+
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        Parallel.For(0, eventCount, i =>
+            listener.ProcessEvent("ContentionStop_V1", DateTime.UnixEpoch.AddTicks(i), payload));
+        Volatile.Write(ref expectedCount, eventCount - listener.DroppedEventCount);
+        if (Volatile.Read(ref observedCount) == expectedCount)
+        {
+            completed.TrySetResult();
+        }
+        await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        await cts.CancelAsync();
+        await readerTask;
+
+        await Assert.That(observedCount + listener.DroppedEventCount).IsEqualTo(eventCount);
+        await Assert.That(inconsistentWindow).IsFalse();
+    }
+
+    [Test]
+    public async Task ContentionEventListenerReportsSamplesDroppedAtTheBoundedQueue()
+    {
+        var observedCount = 0L;
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            observedCount += value.Count;
+            if (observedCount == ContentionEventListener.EventQueueCapacity)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        object?[] payload = [(byte)0, 0U, 1D];
+
+        for (var i = 0; i <= ContentionEventListener.EventQueueCapacity; i++)
+        {
+            listener.ProcessEvent("ContentionStop_V1", DateTime.UnixEpoch.AddTicks(i), payload);
+        }
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(observedCount).IsEqualTo(ContentionEventListener.EventQueueCapacity);
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(1L);
     }
 
     [Test]
@@ -766,6 +846,37 @@ public class EventListenerDataIntegrityTest
         // Stopping must not discard what was already observed.
         await Assert.That(actual.Sum(value => value.Count)).IsEqualTo(2L);
         await Assert.That(actual.Sum(value => value.DurationNsSum)).IsEqualTo(10D);
+    }
+
+    [Test]
+    public async Task ContentionEventListenerStopPreservesEveryPendingFlag()
+    {
+        const int flagCount = byte.MaxValue + 1;
+        var actual = new List<ContentionEventStatistics>(flagCount);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == flagCount)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var flag = 0; flag < flagCount; flag++)
+        {
+            listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(flag), [(byte)flag, 0U, flag + 0.5D]);
+        }
+        listener.Stop();
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(actual).Count().IsEqualTo(flagCount);
+        await Assert.That(actual.Sum(value => value.Count)).IsEqualTo(flagCount);
+        await Assert.That(actual.Select(value => value.Flag).Distinct()).Count().IsEqualTo(flagCount);
     }
 
     [Test]
