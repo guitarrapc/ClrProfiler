@@ -1,4 +1,5 @@
 using ClrProfiler.Statistics;
+using System.Numerics;
 
 namespace ClrProfiler;
 
@@ -73,32 +74,35 @@ public class ProfilerTracker : IDisposable
             throw new ArgumentOutOfRangeException(nameof(ProfilerTrackerOptions.EnabledFeatures), enabledFeatures, "Unknown profiler feature flags were specified.");
         }
 
-        var profilers = new List<IProfiler>(6);
+        var enabledFeatureCount = BitOperations.PopCount((uint)enabledFeatures);
+        profilerStats = enabledFeatureCount == 0
+            ? Array.Empty<IProfiler>()
+            : new IProfiler[enabledFeatureCount];
+        var profilerIndex = 0;
         if ((enabledFeatures & ProfilerFeature.GCEvent) != 0)
         {
-            profilers.Add(new GCEventProfiler(this.options.GCEventCallback.OnSuccess, this.options.GCEventCallback.OnError));
+            profilerStats[profilerIndex++] = new GCEventProfiler(this.options.GCEventCallback.OnSuccess, this.options.GCEventCallback.OnError);
         }
         if ((enabledFeatures & ProfilerFeature.ThreadPoolEvent) != 0)
         {
-            profilers.Add(new ThreadPoolEventProfiler(this.options.ThreadPoolEventCallback.OnSuccess, this.options.ThreadPoolEventCallback.OnError));
+            profilerStats[profilerIndex++] = new ThreadPoolEventProfiler(this.options.ThreadPoolEventCallback.OnSuccess, this.options.ThreadPoolEventCallback.OnError);
         }
         if ((enabledFeatures & ProfilerFeature.ContentionEvent) != 0)
         {
-            profilers.Add(new ContentionEventProfiler(this.options.ContentionEventCallback.OnSuccess, this.options.ContentionEventCallback.OnError));
+            profilerStats[profilerIndex++] = new ContentionEventProfiler(this.options.ContentionEventCallback.OnSuccess, this.options.ContentionEventCallback.OnError);
         }
         if ((enabledFeatures & ProfilerFeature.ThreadInfoTimer) != 0)
         {
-            profilers.Add(new ThreadInfoTimerProfiler(this.options.ThreadInfoTimerCallback.OnSuccess, this.options.ThreadInfoTimerCallback.OnError, this.options.TimerOption));
+            profilerStats[profilerIndex++] = new ThreadInfoTimerProfiler(this.options.ThreadInfoTimerCallback.OnSuccess, this.options.ThreadInfoTimerCallback.OnError, this.options.TimerOption);
         }
         if ((enabledFeatures & ProfilerFeature.GCInfoTimer) != 0)
         {
-            profilers.Add(new GCInfoTimerProfiler(this.options.GCInfoTimerCallback.OnSuccess, this.options.GCInfoTimerCallback.OnError, this.options.TimerOption));
+            profilerStats[profilerIndex++] = new GCInfoTimerProfiler(this.options.GCInfoTimerCallback.OnSuccess, this.options.GCInfoTimerCallback.OnError, this.options.TimerOption);
         }
         if ((enabledFeatures & ProfilerFeature.ProcessInfoTimer) != 0)
         {
-            profilers.Add(new ProcessInfoTimerProfiler(this.options.ProcessInfoTimerCallback.OnSuccess, this.options.ProcessInfoTimerCallback.OnError, this.options.TimerOption));
+            profilerStats[profilerIndex++] = new ProcessInfoTimerProfiler(this.options.ProcessInfoTimerCallback.OnSuccess, this.options.ProcessInfoTimerCallback.OnError, this.options.TimerOption);
         }
-        profilerStats = profilers.ToArray();
         readerTasks = new Task?[profilerStats.Length];
     }
 
