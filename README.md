@@ -62,7 +62,7 @@ tracker.StartTracker();
 
 Unselected features do not create a listener, subscribe to runtime events, start a reader, or create a timer. The same `EnabledFeatures` option is available on `ProfilerTrackerOptions` when using the core package directly.
 
-### Add custom profilers
+### Add custom instrumentation
 
 Implement `IProfiler` to monitor another `EventSource`, CLR event, or timer source, then register a factory alongside the built-in instrumentation:
 
@@ -76,9 +76,11 @@ using var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
         () => new MyEventSourceProfiler(...),
     ],
 });
+tracker.EnableTracker();
+tracker.StartTracker();
 ```
 
-Each factory is invoked once when the tracker is enabled. The tracker owns the returned profiler and includes it in `Start`, `Stop`, `Restart`, `Cancel`, and `Dispose`. Custom profilers remain responsible for bounded, non-blocking event processing and callback error handling.
+Each factory is invoked once when `ProfilerTracker` is constructed, which happens during `ClrTracker.EnableTracker()` when using the Datadog adapter. The tracker owns the returned profiler and includes it in `Start`, `Stop`, `Restart`, `Cancel`, and `Dispose`. Custom profilers remain responsible for bounded, non-blocking event processing and callback error handling.
 
 ## Debugging
 
@@ -98,7 +100,7 @@ Metric tags are precomputed when the tracker is enabled, before CLR listeners st
 
 ## Custom Profiling
 
-For advanced scenarios, you can implement custom profiling by creating your own callback handler. Implement the `IClrTrackerCallbackHandler` interface to define custom behavior for each CLR event type.
+This section customizes handling for the built-in instrumentation; use `AdditionalProfilerFactories` above to add new instrumentation. Implement the `IClrTrackerCallbackHandler` interface to define custom behavior for each built-in CLR event type.
 
 ```cs
 public class MyCustomTrackerHandler : IClrTrackerCallbackHandler
