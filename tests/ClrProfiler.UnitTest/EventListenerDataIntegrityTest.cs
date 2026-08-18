@@ -64,6 +64,41 @@ public class EventListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task GCEventListenerReportsEventsDroppedBeyondChannelCapacity()
+    {
+        var actual = new List<GCEventStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == ChannelCapacity)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var i = 0; i < ChannelCapacity; i++)
+        {
+            listener.ProcessEvent("GCSuspendEEBegin_V1", origin.AddTicks(i * 2L), [1U, (uint)i]);
+            listener.ProcessEvent("GCRestartEEEnd_V1", origin.AddTicks((i * 2L) + 1), []);
+        }
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(0L);
+
+        listener.ProcessEvent("GCSuspendEEBegin_V1", origin.AddTicks(ChannelCapacity * 2L), [1U, (uint)ChannelCapacity]);
+        listener.ProcessEvent("GCRestartEEEnd_V1", origin.AddTicks((ChannelCapacity * 2L) + 1), []);
+
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(1L);
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(actual).Count().IsEqualTo(ChannelCapacity);
+        await Assert.That(actual[0].GCSuspendStatistics.Count).IsEqualTo(1U);
+        await Assert.That(actual[^1].GCSuspendStatistics.Count).IsEqualTo((uint)ChannelCapacity);
+    }
+
+    [Test]
     public async Task GCEventListenerCorrelatesOverlappingCollectionsByIndex()
     {
         var actual = new List<GCEventStatistics>(2);
@@ -1059,6 +1094,38 @@ public class EventListenerDataIntegrityTest
             .Order()
             .ToArray();
         await Assert.That(activeWorkerCounts).IsEquivalentTo(Enumerable.Range(1, ChannelCapacity).Select(value => (uint)value));
+    }
+
+    [Test]
+    public async Task ThreadPoolEventListenerReportsEventsDroppedBeyondChannelCapacity()
+    {
+        var actual = new List<ThreadPoolEventStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableThreadPoolEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == ChannelCapacity)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+
+        for (var i = 0; i < ChannelCapacity; i++)
+        {
+            listener.ProcessEvent("ThreadPoolWorkerThreadStop_V1", DateTime.UnixEpoch.AddTicks(i), [(uint)i]);
+        }
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(0L);
+
+        listener.ProcessEvent("ThreadPoolWorkerThreadStop_V1", DateTime.UnixEpoch.AddTicks(ChannelCapacity), [(uint)ChannelCapacity]);
+
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(1L);
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(actual).Count().IsEqualTo(ChannelCapacity);
+        await Assert.That(actual[0].ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo(1U);
+        await Assert.That(actual[^1].ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo((uint)ChannelCapacity);
     }
 
     [Test]

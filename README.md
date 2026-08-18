@@ -138,6 +138,8 @@ tracker.StartTracker();
 
 This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
 
+Bounded delivery queues keep producers non-blocking and retain the newest values when a reader falls behind. `GCEventListener`, `ThreadPoolEventListener`, `GCInfoTimerListener`, `ProcessInfoTimerListener`, and `ThreadInfoTimerListener` expose a cumulative `DroppedEventCount` for values evicted from their delivery channels. The counter is thread-safe and is not reset by stop or restart.
+
 Contention callbacks place samples in a fixed-capacity MPSC queue and aggregate them by contention flag on the single reader. One `ContentionEventStatistics` can therefore represent many accepted events, while its `Count`, duration sum, maximum, and timestamp always come from the same delivery window.
 
 | Member | Meaning |

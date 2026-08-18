@@ -49,6 +49,35 @@ public class TimerListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task GCInfoTimerListenerReportsSamplesDroppedBeyondChannelCapacity()
+    {
+        var actual = new List<GCInfoStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCInfoTimerListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == ChannelCapacity)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+
+        for (var i = 0; i < ChannelCapacity; i++)
+        {
+            listener.EventCreatedHandler();
+        }
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(0L);
+
+        listener.EventCreatedHandler();
+
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(1L);
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+        await Assert.That(actual).Count().IsEqualTo(ChannelCapacity);
+    }
+
+    [Test]
     public async Task ProcessInfoTimerListenerPreservesEverySampleAtChannelCapacity()
     {
         var actual = new List<ProcessInfoStatistics>(ChannelCapacity);
@@ -82,6 +111,35 @@ public class TimerListenerDataIntegrityTest
             await Assert.That(value.WorkingSet > 0).IsTrue();
             await Assert.That(value.PrivateBytes > 0).IsTrue();
         }
+    }
+
+    [Test]
+    public async Task ProcessInfoTimerListenerReportsSamplesDroppedBeyondChannelCapacity()
+    {
+        var actual = new List<ProcessInfoStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableProcessInfoTimerListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == ChannelCapacity)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+
+        for (var i = 0; i < ChannelCapacity; i++)
+        {
+            listener.EventCreatedHandler();
+        }
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(0L);
+
+        listener.EventCreatedHandler();
+
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(1L);
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+        await Assert.That(actual).Count().IsEqualTo(ChannelCapacity);
     }
 
     [Test]
@@ -121,6 +179,35 @@ public class TimerListenerDataIntegrityTest
             await Assert.That(value.UsingWorkerThreads).IsEqualTo(value.MaxWorkerThreads - value.AvailableWorkerThreads);
             await Assert.That(value.UsingCompletionPortThreads).IsEqualTo(value.MaxCompletionPortThreads - value.AvailableCompletionPortThreads);
         }
+    }
+
+    [Test]
+    public async Task ThreadInfoTimerListenerReportsSamplesDroppedBeyondChannelCapacity()
+    {
+        var actual = new List<ThreadInfoStatistics>(ChannelCapacity);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableThreadInfoTimerListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == ChannelCapacity)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+
+        for (var i = 0; i < ChannelCapacity; i++)
+        {
+            listener.EventCreatedHandler();
+        }
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(0L);
+
+        listener.EventCreatedHandler();
+
+        await Assert.That(listener.DroppedEventCount).IsEqualTo(1L);
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+        await Assert.That(actual).Count().IsEqualTo(ChannelCapacity);
     }
 
     private sealed class TestableGCInfoTimerListener(Func<GCInfoStatistics, Task> onEventEmit)

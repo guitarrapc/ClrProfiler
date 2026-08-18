@@ -18,9 +18,15 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
     private readonly Action<Exception> _onEventError;
     private readonly TimeSpan _dueTime;
     private readonly TimeSpan _intervalPeriod;
+    private long _droppedEventCount;
 
     private readonly Func<int, ulong>? _getGenerationSizeDelegate;
     private readonly Func<int>? _getLastGCPercentTimeInGC;
+
+    /// <summary>
+    /// Gets the cumulative number of samples evicted from the bounded delivery channel.
+    /// </summary>
+    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
 
     /// <summary>
     /// Constructor
@@ -40,7 +46,7 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
             SingleWriter = true,
             SingleReader = true,
             FullMode = BoundedChannelFullMode.DropOldest,
-        });
+        }, OnItemDropped);
 
         var methodGetGenerationSize = typeof(GC).GetMethod("GetGenerationSize", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy);
         _getGenerationSizeDelegate = (Func<int, ulong>?)methodGetGenerationSize?.CreateDelegate(typeof(Func<int, ulong>));
@@ -48,6 +54,8 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
         var methodGetLastGCPercentTimeInGC = typeof(GC).GetMethod("GetLastGCPercentTimeInGC", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy);
         _getLastGCPercentTimeInGC = (Func<int>?)methodGetLastGCPercentTimeInGC?.CreateDelegate(typeof(Func<int>));
     }
+
+    private void OnItemDropped(GCInfoStatistics _) => Interlocked.Increment(ref _droppedEventCount);
 
     protected override void OnEventWritten()
     {
