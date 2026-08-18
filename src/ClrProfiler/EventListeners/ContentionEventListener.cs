@@ -15,17 +15,17 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
 {
     private const int ContentionFlagCount = byte.MaxValue + 1;
     private const int MaxEnqueueAttempts = 8;
+    private const int MaxBatchSize = 1024;
     /// <summary>Picoseconds per nanosecond. Durations accumulate as whole picoseconds.</summary>
     private const double PicosecondsPerNanosecond = 1000D;
     /// <summary>
     /// Upper bound for a single event's contribution, roughly 2.5 hours. Real contention is
     /// orders of magnitude shorter; the cap only exists so a malformed payload cannot push the
-    /// accumulators toward overflow, and it takes 1024 capped events in one window to get there.
+    /// accumulator toward overflow when a full reader batch is folded into one window.
     /// </summary>
-    private const long MaxDurationPicoseconds = long.MaxValue / 1024;
+    private const long MaxDurationPicoseconds = long.MaxValue / MaxBatchSize;
 
     internal const int EventQueueCapacity = 4 * 1024;
-    private const int MaxBatchSize = 1024;
 
     private readonly BoundedMpscQueue<ContentionSample> _events = new(EventQueueCapacity);
     private readonly Channel<bool> _flushSignal;
