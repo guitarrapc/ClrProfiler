@@ -14,31 +14,37 @@ namespace ClrProfiler.EventListeners;
 public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
 {
     private const int ContentionFlagCount = byte.MaxValue + 1;
+    private const int MaxEnqueueAttempts = 8;
+    private const int MaxBatchSize = 1024;
     /// <summary>Picoseconds per nanosecond. Durations accumulate as whole picoseconds.</summary>
     private const double PicosecondsPerNanosecond = 1000D;
     /// <summary>
     /// Upper bound for a single event's contribution, roughly 2.5 hours. Real contention is
     /// orders of magnitude shorter; the cap only exists so a malformed payload cannot push the
-    /// accumulators toward overflow, and it takes 1024 capped events in one window to get there.
+    /// accumulator toward overflow when a full reader batch is folded into one window.
     /// </summary>
-    private const long MaxDurationPicoseconds = long.MaxValue / 1024;
+    private const long MaxDurationPicoseconds = long.MaxValue / MaxBatchSize;
 
-    /// <summary>
-    /// How many <see cref="Stop"/>-sealed aggregates can wait for a reader. One entry per flag per
-    /// stop, so this only fills if the listener is stopped many times over with no reader draining,
-    /// in which case the oldest sealed values are the ones worth keeping.
-    /// </summary>
-    private const int SealedAggregateCapacity = 64;
+    internal const int EventQueueCapacity = 4 * 1024;
 
+    private readonly BoundedMpscQueue<ContentionSample> _events = new(EventQueueCapacity);
     private readonly Channel<bool> _flushSignal;
-    private readonly Channel<ContentionEventStatistics> _sealedAggregates;
     private readonly Func<ContentionEventStatistics, Task> _onEventEmit;
     private readonly Action<Exception> _onEventError;
-    private readonly long[] _counts = new long[ContentionFlagCount];
-    private readonly long[] _durationSumPs = new long[ContentionFlagCount];
-    private readonly long[] _durationMaxPs = new long[ContentionFlagCount];
-    private readonly long[] _times = new long[ContentionFlagCount];
-    private readonly long[] _activeFlags = new long[ContentionFlagCount / 64];
+    private readonly long[] _readerCounts = new long[ContentionFlagCount];
+    private readonly long[] _readerDurationSumPs = new long[ContentionFlagCount];
+    private readonly long[] _readerDurationMaxPs = new long[ContentionFlagCount];
+    private readonly long[] _readerTimes = new long[ContentionFlagCount];
+    private readonly ulong[] _readerActiveFlags = new ulong[ContentionFlagCount / 64];
+    private long _generation;
+    private long _droppedEventCount;
+    private int _notificationPending;
+
+    /// <summary>
+    /// Gets the cumulative number of contention samples rejected because the fixed event queue
+    /// was full or a producer could not reserve a slot within the bounded retry limit.
+    /// </summary>
+    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
 
     public ContentionEventListener(Func<ContentionEventStatistics, Task> onEventEmit, Action<Exception> onEventError) : base("Microsoft-Windows-DotNETRuntime", EventLevel.Informational, ClrRuntimeEventKeywords.Contention)
     {
@@ -51,12 +57,8 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
             FullMode = BoundedChannelFullMode.DropWrite,
         };
         _flushSignal = Channel.CreateBounded<bool>(channelOption);
-        _sealedAggregates = Channel.CreateBounded<ContentionEventStatistics>(new BoundedChannelOptions(SealedAggregateCapacity)
-        {
-            SingleReader = true,
-            SingleWriter = false,
-            FullMode = BoundedChannelFullMode.DropWrite,
-        });
+        _flushSignal.Writer.TryWrite(true);
+        _flushSignal.Reader.TryRead(out _);
     }
 
     public override void EventCreatedHandler(EventWrittenEventArgs eventData)
@@ -85,26 +87,21 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
     private void Aggregate(long time, byte flag, double durationNs)
     {
         var durationPs = ToPicoseconds(durationNs);
-
-        // Duration and timestamp are folded in before the count is incremented. The reader gates a
-        // flush on a non-zero count, so this order can only ever attribute a duration to the flush
-        // before its own count, never drop it. Incrementing first would let a duration strand until
-        // the next event for the same flag arrives.
-        Interlocked.Add(ref _durationSumPs[flag], durationPs);
-        InterlockedMax(ref _durationMaxPs[flag], durationPs);
-        InterlockedMax(ref _times[flag], time);
-        if (Interlocked.Increment(ref _counts[flag]) == 1)
+        if (!_events.TryEnqueue(new ContentionSample(time, Volatile.Read(ref _generation), durationPs, flag)))
         {
-            Interlocked.Or(ref _activeFlags[flag / 64], 1L << (flag % 64));
+            Interlocked.Increment(ref _droppedEventCount);
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _notificationPending, 1) == 0)
+        {
             _flushSignal.Writer.TryWrite(true);
         }
     }
 
     /// <summary>
-    /// Converts a payload duration to whole picoseconds so the per-event fold stays a single
-    /// lock-free add. Accumulating the sum as a double would need a compare-exchange loop, which
-    /// spins on exactly the path that is by definition already contended. Picoseconds keep the
-    /// values the runtime reports exact while leaving the accumulator far from overflow.
+    /// Converts a payload duration to whole picoseconds before it enters the fixed event queue.
+    /// This lets the single reader accumulate durations with integer addition and no rounding drift.
     /// Non-finite and negative payloads contribute nothing rather than corrupting the sum.
     /// </summary>
     private static long ToPicoseconds(double durationNs)
@@ -124,90 +121,53 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
     }
 
     /// <summary>
-    /// Raises <paramref name="location"/> to <paramref name="value"/> when it is larger. The loop
-    /// only retries when a concurrent writer also raised the value, so it is bounded by the number
-    /// of increases rather than by the number of writers.
-    /// </summary>
-    private static void InterlockedMax(ref long location, long value)
-    {
-        var current = Volatile.Read(ref location);
-        while (current < value)
-        {
-            var observed = Interlocked.CompareExchange(ref location, value, current);
-            if (observed == current)
-            {
-                return;
-            }
-            current = observed;
-        }
-    }
-
-    /// <summary>
-    /// Stops the listener and seals whatever is still aggregated so it is delivered as its own
-    /// value.
+    /// Stops the listener and advances the delivery generation.
     /// </summary>
     /// <remarks>
-    /// Without this, a burst that was observed but not yet dispatched stays in the accumulators and
-    /// is folded into the first events that arrive after <see cref="ProfileEventListenerBase.Restart"/>,
-    /// reporting old contention under a post-restart timestamp. Sealing happens synchronously here,
-    /// so by the time this returns the accumulators are empty and nothing can merge across the
-    /// boundary.
+    /// Queued samples retain their generation, so the reader emits pre-stop and post-restart samples
+    /// in separate aggregation windows even when both are drained later.
     /// </remarks>
     public override void Stop()
     {
         base.Stop();
+        Interlocked.Increment(ref _generation);
+    }
 
-        var sealedAny = false;
-        for (var wordIndex = 0; wordIndex < _activeFlags.Length; wordIndex++)
+    private void AggregateOnReader(in ContentionSample sample)
+    {
+        var flag = sample.Flag;
+        _readerCounts[flag]++;
+        _readerDurationSumPs[flag] += sample.DurationPs;
+        _readerDurationMaxPs[flag] = Math.Max(_readerDurationMaxPs[flag], sample.DurationPs);
+        _readerTimes[flag] = Math.Max(_readerTimes[flag], sample.Time);
+        _readerActiveFlags[flag / 64] |= 1UL << (flag % 64);
+    }
+
+    private async Task EmitReaderAggregatesAsync()
+    {
+        for (var wordIndex = 0; wordIndex < _readerActiveFlags.Length; wordIndex++)
         {
-            var activeFlags = (ulong)Interlocked.Exchange(ref _activeFlags[wordIndex], 0);
+            var activeFlags = _readerActiveFlags[wordIndex];
+            _readerActiveFlags[wordIndex] = 0;
             while (activeFlags != 0)
             {
                 var bitIndex = BitOperations.TrailingZeroCount(activeFlags);
                 var flag = (wordIndex * 64) + bitIndex;
                 activeFlags &= activeFlags - 1;
 
-                if (TryTakeAggregate(flag, out var value))
-                {
-                    sealedAny |= _sealedAggregates.Writer.TryWrite(value);
-                }
+                var value = new ContentionEventStatistics(
+                    _readerTimes[flag],
+                    (byte)flag,
+                    _readerCounts[flag],
+                    _readerDurationSumPs[flag] / PicosecondsPerNanosecond,
+                    _readerDurationMaxPs[flag] / PicosecondsPerNanosecond);
+                _readerCounts[flag] = 0;
+                _readerDurationSumPs[flag] = 0;
+                _readerDurationMaxPs[flag] = 0;
+                _readerTimes[flag] = 0;
+                await EmitAsync(value);
             }
         }
-
-        if (sealedAny)
-        {
-            _flushSignal.Writer.TryWrite(true);
-        }
-    }
-
-    /// <summary>
-    /// Takes everything aggregated for <paramref name="flag"/> and resets it for the next window.
-    /// Returns <see langword="false"/> when nothing was counted.
-    /// </summary>
-    private bool TryTakeAggregate(int flag, out ContentionEventStatistics value)
-    {
-        var count = Interlocked.Exchange(ref _counts[flag], 0);
-        if (count == 0)
-        {
-            // A producer sets the active bit before incrementing the count, so a bit can outlive
-            // the flush that already drained it. Leaving the duration accumulators alone here is
-            // what lets a duration folded in just before that flush be reported by the next one.
-            value = default;
-            return false;
-        }
-
-        var durationSumPs = Interlocked.Exchange(ref _durationSumPs[flag], 0);
-        var durationMaxPs = Interlocked.Exchange(ref _durationMaxPs[flag], 0);
-        // Read, not reset: this is the newest timestamp seen for the flag and must not regress to
-        // zero for a window whose event was counted after a reset.
-        var time = Volatile.Read(ref _times[flag]);
-        value = new ContentionEventStatistics(
-            time,
-            (byte)flag,
-            count,
-            durationSumPs / PicosecondsPerNanosecond,
-            durationMaxPs / PicosecondsPerNanosecond);
-        return true;
     }
 
     private async Task EmitAsync(ContentionEventStatistics value)
@@ -290,33 +250,128 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
             {
                 while (_flushSignal.Reader.TryRead(out _))
                 {
-                    // Aggregates sealed by Stop come first so they keep their own timestamp and are
-                    // never reported after work that arrived on a later Restart.
-                    while (_sealedAggregates.Reader.TryRead(out var sealedValue))
+                    while (true)
                     {
-                        await EmitAsync(sealedValue);
-                    }
-
-                    for (var wordIndex = 0; wordIndex < _activeFlags.Length; wordIndex++)
-                    {
-                        var activeFlags = (ulong)Interlocked.Exchange(ref _activeFlags[wordIndex], 0);
-                        while (activeFlags != 0)
+                        var batchCount = 0;
+                        var generation = -1L;
+                        while (batchCount < MaxBatchSize && _events.TryDequeue(out var sample))
                         {
-                            var bitIndex = BitOperations.TrailingZeroCount(activeFlags);
-                            var flag = (wordIndex * 64) + bitIndex;
-                            activeFlags &= activeFlags - 1;
-
-                            if (TryTakeAggregate(flag, out var value))
+                            if (generation >= 0 && sample.Generation != generation)
                             {
-                                await EmitAsync(value);
+                                await EmitReaderAggregatesAsync();
+                                batchCount = 0;
                             }
+                            generation = sample.Generation;
+                            AggregateOnReader(in sample);
+                            batchCount++;
                         }
+
+                        if (batchCount != 0)
+                        {
+                            await EmitReaderAggregatesAsync();
+                        }
+
+                        if (batchCount == MaxBatchSize)
+                        {
+                            continue;
+                        }
+
+                        Volatile.Write(ref _notificationPending, 0);
+                        if (_events.HasReadyItem && Interlocked.Exchange(ref _notificationPending, 1) == 0)
+                        {
+                            continue;
+                        }
+                        break;
                     }
                 }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+        }
+    }
+
+    private readonly record struct ContentionSample(long Time, long Generation, long DurationPs, byte Flag);
+
+    /// <summary>
+    /// Fixed-capacity MPSC queue. Producer reservation has a strict retry bound and never waits;
+    /// exhaustion is reported as a dropped event by the listener.
+    /// </summary>
+    private sealed class BoundedMpscQueue<T> where T : struct
+    {
+        private readonly Slot[] _slots;
+        private readonly int _mask;
+        private long _enqueuePosition;
+        private long _dequeuePosition;
+
+        public BoundedMpscQueue(int capacity)
+        {
+            if (capacity < 2 || !BitOperations.IsPow2(capacity))
+            {
+                throw new ArgumentOutOfRangeException(nameof(capacity), "Capacity must be a power of two.");
+            }
+
+            _slots = new Slot[capacity];
+            _mask = capacity - 1;
+            for (var i = 0; i < capacity; i++)
+            {
+                _slots[i].Sequence = i;
+            }
+        }
+
+        public bool HasReadyItem
+        {
+            get
+            {
+                var position = _dequeuePosition;
+                return Volatile.Read(ref _slots[(int)position & _mask].Sequence) == position + 1;
+            }
+        }
+
+        public bool TryEnqueue(T item)
+        {
+            for (var attempt = 0; attempt < MaxEnqueueAttempts; attempt++)
+            {
+                var position = Volatile.Read(ref _enqueuePosition);
+                ref var slot = ref _slots[(int)position & _mask];
+                var difference = Volatile.Read(ref slot.Sequence) - position;
+                if (difference < 0)
+                {
+                    return false;
+                }
+                if (difference == 0 &&
+                    Interlocked.CompareExchange(ref _enqueuePosition, position + 1, position) == position)
+                {
+                    slot.Item = item;
+                    Volatile.Write(ref slot.Sequence, position + 1);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool TryDequeue(out T item)
+        {
+            var position = _dequeuePosition;
+            ref var slot = ref _slots[(int)position & _mask];
+            if (Volatile.Read(ref slot.Sequence) != position + 1)
+            {
+                item = default;
+                return false;
+            }
+
+            item = slot.Item;
+            slot.Item = default;
+            Volatile.Write(ref slot.Sequence, position + _slots.Length);
+            _dequeuePosition = position + 1;
+            return true;
+        }
+
+        private struct Slot
+        {
+            public long Sequence;
+            public T Item;
         }
     }
 }
