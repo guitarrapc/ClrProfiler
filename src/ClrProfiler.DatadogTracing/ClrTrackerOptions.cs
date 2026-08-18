@@ -12,6 +12,10 @@ public record ClrTrackerOptions
     /// </summary>
     public ProfilerFeature EnabledFeatures { get; init; } = ProfilerFeature.All;
     /// <summary>
+    /// Gets additional profiler factories whose instances are managed and disposed by the tracker.
+    /// </summary>
+    public IReadOnlyList<Func<IProfiler>> AdditionalProfilerFactories { get; init; } = Array.Empty<Func<IProfiler>>();
+    /// <summary>
     /// Select the type of ClrTracker to use. If Custom is selected, CustomHandler must be set.
     /// </summary>
     public required ClrTrackerType TrackerType { get; init; }

@@ -61,6 +61,7 @@ public class ClrTracker : IDisposable
                 _ => throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemented."),
             };
             profilerOptions.EnabledFeatures = _options.EnabledFeatures;
+            profilerOptions.AdditionalProfilerFactories = _options.AdditionalProfilerFactories;
 
             _profilerTracker = new ProfilerTracker(profilerOptions);
             _enabled = true;

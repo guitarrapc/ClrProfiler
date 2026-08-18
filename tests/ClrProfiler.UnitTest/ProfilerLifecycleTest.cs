@@ -48,6 +48,121 @@ public class ProfilerLifecycleTest
     }
 
     [Test]
+    public async Task TrackerOwnsAdditionalProfilerLifecycle()
+    {
+        using var cts = new CancellationTokenSource();
+        var profiler = new RecordingProfiler();
+        var factoryCallCount = 0;
+        using var tracker = new ProfilerTracker(new ProfilerTrackerOptions
+        {
+            CancellationTokenSource = cts,
+            EnabledFeatures = ProfilerFeature.None,
+            AdditionalProfilerFactories =
+            [
+                () =>
+                {
+                    factoryCallCount++;
+                    return profiler;
+                },
+            ],
+        });
+        var names = new List<string>();
+
+        tracker.Status(status => names.Add(status.Name));
+        tracker.Start();
+        tracker.Dispose();
+
+        await Assert.That(factoryCallCount).IsEqualTo(1);
+        await Assert.That(names).IsEquivalentTo([nameof(RecordingProfiler)]);
+        await Assert.That(profiler.StartCount).IsEqualTo(1);
+        await Assert.That(profiler.ReadCount).IsEqualTo(1);
+        await Assert.That(profiler.StopCount).IsEqualTo(1);
+        await Assert.That(profiler.DisposeCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task TrackerDisposesCreatedProfilersWhenAdditionalFactoryThrows()
+    {
+        using var cts = new CancellationTokenSource();
+        var profiler = new RecordingProfiler();
+        var expectedException = new InvalidOperationException("factory failed");
+
+        void CreateTracker() => _ = new ProfilerTracker(new ProfilerTrackerOptions
+        {
+            CancellationTokenSource = cts,
+            EnabledFeatures = ProfilerFeature.None,
+            AdditionalProfilerFactories =
+            [
+                () => profiler,
+                () => throw expectedException,
+            ],
+        });
+
+        await Assert.That(CreateTracker).Throws<InvalidOperationException>();
+        await Assert.That(profiler.DisposeCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task TrackerReportsNullAdditionalProfilerFactoryIndex()
+    {
+        using var cts = new CancellationTokenSource();
+        var profiler = new RecordingProfiler();
+        ArgumentException? actualException = null;
+
+        try
+        {
+            _ = new ProfilerTracker(new ProfilerTrackerOptions
+            {
+                CancellationTokenSource = cts,
+                EnabledFeatures = ProfilerFeature.None,
+                AdditionalProfilerFactories =
+                [
+                    () => profiler,
+                    null!,
+                ],
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            actualException = ex;
+        }
+
+        await Assert.That(actualException).IsNotNull();
+        await Assert.That(actualException!.Message).Contains("index 1");
+        await Assert.That(profiler.DisposeCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task TrackerReportsNullReturningAdditionalProfilerFactoryIndex()
+    {
+        using var cts = new CancellationTokenSource();
+        var profiler = new RecordingProfiler();
+        InvalidOperationException? actualException = null;
+
+        try
+        {
+            _ = new ProfilerTracker(new ProfilerTrackerOptions
+            {
+                CancellationTokenSource = cts,
+                EnabledFeatures = ProfilerFeature.None,
+                AdditionalProfilerFactories =
+                [
+                    () => profiler,
+                    () => null!,
+                ],
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            actualException = ex;
+        }
+
+        await Assert.That(actualException).IsNotNull();
+        await Assert.That(actualException!.Message).Contains("index 1");
+        await Assert.That(profiler.DisposeCount).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task TrackerLifecycleTransitionsAreIdempotent()
     {
         using var firstCts = new CancellationTokenSource();
@@ -294,6 +409,7 @@ public class ProfilerLifecycleTest
         public int RestartCount { get; private set; }
         public int StopCount { get; private set; }
         public int ReadCount { get; private set; }
+        public int DisposeCount { get; private set; }
 
         public void Start()
         {
@@ -321,6 +437,7 @@ public class ProfilerLifecycleTest
 
         public void Dispose()
         {
+            DisposeCount++;
         }
     }
 
