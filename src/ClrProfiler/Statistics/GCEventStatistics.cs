@@ -7,6 +7,7 @@ public enum GCEventType
     GCStartEnd,
     GCSuspend,
     GCHeapStats,
+    GCGlobalHistory,
 }
 
 /// <summary>
@@ -18,18 +19,25 @@ public readonly struct GCEventStatistics : IEquatable<GCEventStatistics>
     public readonly GCStartEndStatistics GCStartEndStatistics;
     public readonly GCSuspendStatistics GCSuspendStatistics;
     public readonly GCHeapStatistics GCHeapStatistics;
+    public readonly GCGlobalHistoryStatistics GCGlobalHistoryStatistics;
 
     public GCEventStatistics(GCEventType type, GCStartEndStatistics gCStartEndStatistics, GCSuspendStatistics gCSuspendStatistics)
-        : this(type, gCStartEndStatistics, gCSuspendStatistics, default)
+        : this(type, gCStartEndStatistics, gCSuspendStatistics, default, default)
     {
     }
 
     public GCEventStatistics(GCEventType type, GCStartEndStatistics gCStartEndStatistics, GCSuspendStatistics gCSuspendStatistics, GCHeapStatistics gCHeapStatistics)
+        : this(type, gCStartEndStatistics, gCSuspendStatistics, gCHeapStatistics, default)
+    {
+    }
+
+    public GCEventStatistics(GCEventType type, GCStartEndStatistics gCStartEndStatistics, GCSuspendStatistics gCSuspendStatistics, GCHeapStatistics gCHeapStatistics, GCGlobalHistoryStatistics gCGlobalHistoryStatistics)
     {
         Type = type;
         GCStartEndStatistics = gCStartEndStatistics;
         GCSuspendStatistics = gCSuspendStatistics;
         GCHeapStatistics = gCHeapStatistics;
+        GCGlobalHistoryStatistics = gCGlobalHistoryStatistics;
     }
 
     public override bool Equals(object? obj)
@@ -43,12 +51,13 @@ public readonly struct GCEventStatistics : IEquatable<GCEventStatistics>
         return Type == other.Type
             && GCStartEndStatistics.Equals(other.GCStartEndStatistics)
             && GCSuspendStatistics.Equals(other.GCSuspendStatistics)
-            && GCHeapStatistics.Equals(other.GCHeapStatistics);
+            && GCHeapStatistics.Equals(other.GCHeapStatistics)
+            && GCGlobalHistoryStatistics.Equals(other.GCGlobalHistoryStatistics);
     }
 
     public override int GetHashCode()
     {
-        return HashCode.Combine(Type, GCStartEndStatistics, GCSuspendStatistics, GCHeapStatistics);
+        return HashCode.Combine(Type, GCStartEndStatistics, GCSuspendStatistics, GCHeapStatistics, GCGlobalHistoryStatistics);
     }
 
     public static bool operator ==(GCEventStatistics left, GCEventStatistics right)
@@ -220,6 +229,71 @@ public readonly struct GCHeapStatistics(long time, ulong gen0Size, ulong gen1Siz
     }
 
     public static bool operator !=(GCHeapStatistics left, GCHeapStatistics right)
+    {
+        return !(left == right);
+    }
+}
+
+/// <summary>
+/// Per-collection summary from the GCGlobalHeapHistory event: which generation was condemned, why
+/// the collection ran, and which global mechanisms (compaction, concurrency) it used.
+/// </summary>
+public readonly struct GCGlobalHistoryStatistics(long time, uint condemnedGeneration, uint reason, uint globalMechanisms, uint memoryPressure) : IEquatable<GCGlobalHistoryStatistics>
+{
+    private const uint ConcurrentMechanism = 0x1;
+    private const uint CompactionMechanism = 0x2;
+
+    public readonly long Time = time;
+    /// <summary>
+    /// Generation actually condemned by this collection (0-2). Compare with the requested
+    /// generation on GCStart to observe escalation.
+    /// </summary>
+    public readonly uint CondemnedGeneration = condemnedGeneration;
+    /// <summary>
+    /// Same value space as <see cref="GCStartEndStatistics.Reason"/>.
+    /// </summary>
+    public readonly uint Reason = reason;
+    /// <summary>
+    /// Raw global mechanisms bitmask. Bit 0x1 = concurrent, 0x2 = compaction, 0x4 = promotion,
+    /// 0x8 = demotion, 0x10 = card bundles.
+    /// </summary>
+    public readonly uint GlobalMechanisms = globalMechanisms;
+    /// <summary>
+    /// Memory load percentage the GC observed (0-100). Zero on runtimes emitting a payload
+    /// version that predates the field.
+    /// </summary>
+    public readonly uint MemoryPressure = memoryPressure;
+
+    /// <summary>True when this collection compacted the heap.</summary>
+    public bool Compacting => (GlobalMechanisms & CompactionMechanism) != 0;
+    /// <summary>True when this collection ran concurrently (background GC).</summary>
+    public bool Concurrent => (GlobalMechanisms & ConcurrentMechanism) != 0;
+
+    public override bool Equals(object? obj)
+    {
+        return obj is GCGlobalHistoryStatistics other && Equals(other);
+    }
+
+    public bool Equals([AllowNull] GCGlobalHistoryStatistics other)
+    {
+        return Time == other.Time &&
+            CondemnedGeneration == other.CondemnedGeneration &&
+            Reason == other.Reason &&
+            GlobalMechanisms == other.GlobalMechanisms &&
+            MemoryPressure == other.MemoryPressure;
+    }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(Time, CondemnedGeneration, Reason, GlobalMechanisms, MemoryPressure);
+    }
+
+    public static bool operator ==(GCGlobalHistoryStatistics left, GCGlobalHistoryStatistics right)
+    {
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(GCGlobalHistoryStatistics left, GCGlobalHistoryStatistics right)
     {
         return !(left == right);
     }

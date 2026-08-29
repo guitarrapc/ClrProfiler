@@ -621,6 +621,122 @@ public class EventListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task GCEventListenerParsesGlobalHeapHistoryIntoGlobalHistoryStatistics()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            // GCGlobalHeapHistory_V2 payload: FinalYoungestDesired, NumHeaps, CondemnedGeneration,
+            // Gen0ReductionCount, Reason, GlobalMechanisms, ClrInstanceID, PauseMode, MemoryPressure.
+            // GlobalMechanisms 0x3 = Concurrent | Compaction.
+            listener.ProcessEvent("GCGlobalHeapHistory_V2", origin,
+                [1024UL, 8, 2U, 0U, 1U, 3U, (ushort)1, 0U, 42U]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var result = await Assert.That(actual).HasSingleItem();
+        await Assert.That(result.Type).IsEqualTo(GCEventType.GCGlobalHistory);
+        var globalHistory = result.GCGlobalHistoryStatistics;
+        await Assert.That(globalHistory.Time).IsEqualTo(origin.Ticks);
+        await Assert.That(globalHistory.CondemnedGeneration).IsEqualTo(2U);
+        await Assert.That(globalHistory.Reason).IsEqualTo(1U);
+        await Assert.That(globalHistory.Compacting).IsTrue();
+        await Assert.That(globalHistory.Concurrent).IsTrue();
+        await Assert.That(globalHistory.MemoryPressure).IsEqualTo(42U);
+    }
+
+    [Test]
+    public async Task GCEventListenerParsesGlobalHeapHistoryWithoutMemoryPressureAsZero()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            // The V1 payload ends at ClrInstanceID; mechanisms 0 = blocking non-compacting.
+            listener.ProcessEvent("GCGlobalHeapHistory_V1", origin, [1024UL, 1, 0U, 0U, 0U, 0U, (ushort)1]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var globalHistory = (await Assert.That(actual).HasSingleItem()).GCGlobalHistoryStatistics;
+        await Assert.That(globalHistory.CondemnedGeneration).IsEqualTo(0U);
+        await Assert.That(globalHistory.Compacting).IsFalse();
+        await Assert.That(globalHistory.Concurrent).IsFalse();
+        await Assert.That(globalHistory.MemoryPressure).IsEqualTo(0U);
+    }
+
+    [Test]
+    public async Task GCEventListenerMalformedGlobalHeapHistoryReportsErrorAndProcessesLaterEvent()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var errors = new List<Exception>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        }, errors.Add);
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCGlobalHeapHistory_V2", origin, [1024UL]);
+            listener.ProcessEvent("GCGlobalHeapHistory_V2", origin.AddTicks(1),
+                [1024UL, 8, 1U, 0U, 0U, 2U, (ushort)1, 0U, 7U]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        await Assert.That(errors).HasSingleItem();
+        var globalHistory = (await Assert.That(actual).HasSingleItem()).GCGlobalHistoryStatistics;
+        await Assert.That(globalHistory.CondemnedGeneration).IsEqualTo(1U);
+        await Assert.That(globalHistory.MemoryPressure).IsEqualTo(7U);
+    }
+
+    [Test]
     public async Task GCEventListenerHeapStatsHotPathDoesNotAllocate()
     {
         using var listener = new TestableGCEventListener(_ => Task.CompletedTask);
