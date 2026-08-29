@@ -85,6 +85,7 @@ internal static class MetricTags
     private static readonly MetricTagSet[] ContentionTags = CreateSingleValueTagSets(ContentionTagValues);
     private static readonly MetricTagSet[] GcStartEndTags = CreateGcStartEndTags();
     private static readonly MetricTagSet[] GcHeapStatsGenerationTags = CreateGcHeapStatsGenerationTags();
+    private static readonly MetricTagSet[] GcGlobalTags = CreateGcGlobalTags();
     private static readonly MetricTagSet[] GcSuspendTags = CreateSingleValueTagSets(GcSuspendTagValues);
     private static readonly MetricTagSet[] ThreadAdjustmentTags = CreateSingleValueTagSets(ThreadAdjustmentTagValues);
     private static readonly GcInfoMetricTagSet[] GcInfoTags = CreateGcInfoTags();
@@ -122,6 +123,14 @@ internal static class MetricTags
     public static ref readonly MetricTagSet GetGcHeapStatsGeneration(int generation)
     {
         return ref GcHeapStatsGenerationTags[generation];
+    }
+
+    public static ref readonly MetricTagSet GetGcGlobal(uint condemnedGeneration, uint reason, bool compacting)
+    {
+        var generationIndex = condemnedGeneration < KnownGcGenerationCount ? (int)condemnedGeneration : KnownGcGenerationCount;
+        var reasonIndex = reason < KnownGcReasonCount ? (int)reason : KnownGcReasonCount;
+        var index = (generationIndex * GcReasonCount * 2) + (reasonIndex * 2) + (compacting ? 1 : 0);
+        return ref GcGlobalTags[index];
     }
 
     public static ref readonly MetricTagSet GetGcSuspend(uint reason)
@@ -294,6 +303,24 @@ internal static class MetricTags
             new MetricTagSet(["gc_gen:loh"]),
             new MetricTagSet(["gc_gen:poh"]),
         ];
+    }
+
+    private static MetricTagSet[] CreateGcGlobalTags()
+    {
+        string[] compactionTagValues = ["gc_compaction:0", "gc_compaction:1"];
+        var tags = new MetricTagSet[GcGenerationCount * GcReasonCount * 2];
+        for (var generation = 0; generation < GcGenerationCount; generation++)
+        {
+            for (var reason = 0; reason < GcReasonCount; reason++)
+            {
+                for (var compaction = 0; compaction < 2; compaction++)
+                {
+                    var index = (generation * GcReasonCount * 2) + (reason * 2) + compaction;
+                    tags[index] = new MetricTagSet([GcGenerationTagValues[generation], GcReasonTagValues[reason], compactionTagValues[compaction]]);
+                }
+            }
+        }
+        return tags;
     }
 
     private static MetricTagSet[] CreateGcStartEndTags()

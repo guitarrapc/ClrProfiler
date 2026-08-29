@@ -621,6 +621,122 @@ public class EventListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task GCEventListenerParsesGlobalHeapHistoryIntoGlobalHistoryStatistics()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            // GCGlobalHeapHistory_V2 payload: FinalYoungestDesired, NumHeaps, CondemnedGeneration,
+            // Gen0ReductionCount, Reason, GlobalMechanisms, ClrInstanceID, PauseMode, MemoryPressure.
+            // GlobalMechanisms 0x3 = Concurrent | Compaction.
+            listener.ProcessEvent("GCGlobalHeapHistory_V2", origin,
+                [1024UL, 8, 2U, 0U, 1U, 3U, (ushort)1, 0U, 42U]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var result = await Assert.That(actual).HasSingleItem();
+        await Assert.That(result.Type).IsEqualTo(GCEventType.GCGlobalHistory);
+        var globalHistory = result.GCGlobalHistoryStatistics;
+        await Assert.That(globalHistory.Time).IsEqualTo(origin.Ticks);
+        await Assert.That(globalHistory.CondemnedGeneration).IsEqualTo(2U);
+        await Assert.That(globalHistory.Reason).IsEqualTo(1U);
+        await Assert.That(globalHistory.Compacting).IsTrue();
+        await Assert.That(globalHistory.Concurrent).IsTrue();
+        await Assert.That(globalHistory.MemoryPressure).IsEqualTo(42U);
+    }
+
+    [Test]
+    public async Task GCEventListenerParsesGlobalHeapHistoryWithoutMemoryPressureAsZero()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            // The V1 payload ends at ClrInstanceID; mechanisms 0 = blocking non-compacting.
+            listener.ProcessEvent("GCGlobalHeapHistory_V1", origin, [1024UL, 1, 0U, 0U, 0U, 0U, (ushort)1]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var globalHistory = (await Assert.That(actual).HasSingleItem()).GCGlobalHistoryStatistics;
+        await Assert.That(globalHistory.CondemnedGeneration).IsEqualTo(0U);
+        await Assert.That(globalHistory.Compacting).IsFalse();
+        await Assert.That(globalHistory.Concurrent).IsFalse();
+        await Assert.That(globalHistory.MemoryPressure).IsEqualTo(0U);
+    }
+
+    [Test]
+    public async Task GCEventListenerMalformedGlobalHeapHistoryReportsErrorAndProcessesLaterEvent()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var errors = new List<Exception>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        }, errors.Add);
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCGlobalHeapHistory_V2", origin, [1024UL]);
+            listener.ProcessEvent("GCGlobalHeapHistory_V2", origin.AddTicks(1),
+                [1024UL, 8, 1U, 0U, 0U, 2U, (ushort)1, 0U, 7U]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        await Assert.That(errors).HasSingleItem();
+        var globalHistory = (await Assert.That(actual).HasSingleItem()).GCGlobalHistoryStatistics;
+        await Assert.That(globalHistory.CondemnedGeneration).IsEqualTo(1U);
+        await Assert.That(globalHistory.MemoryPressure).IsEqualTo(7U);
+    }
+
+    [Test]
     public async Task GCEventListenerHeapStatsHotPathDoesNotAllocate()
     {
         using var listener = new TestableGCEventListener(_ => Task.CompletedTask);
@@ -721,6 +837,63 @@ public class EventListenerDataIntegrityTest
         await Assert.That(result.DurationNsMax).IsEqualTo(100.25D);
         await Assert.That(result.DurationNsMean).IsEqualTo(43.5D);
         await Assert.That(result.Time).IsEqualTo(origin.AddTicks(durations.Length - 1).Ticks);
+    }
+
+    [Test]
+    public async Task ContentionEventListenerCountsStartEventsInTheSameWindow()
+    {
+        var actual = new List<ContentionEventStatistics>(1);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            cts.Cancel();
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        listener.ProcessEvent("ContentionStart_V2", origin, [(byte)0, 0U]);
+        listener.ProcessEvent("ContentionStart_V2", origin.AddTicks(1), [(byte)0, 0U]);
+        listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(2), [(byte)0, 0U, 10D]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        var result = await Assert.That(actual).HasSingleItem();
+        await Assert.That(result.StartCount).IsEqualTo(2L);
+        await Assert.That(result.Count).IsEqualTo(1L);
+        await Assert.That(result.DurationNsSum).IsEqualTo(10D);
+        await Assert.That(result.Time).IsEqualTo(origin.AddTicks(2).Ticks);
+    }
+
+    [Test]
+    public async Task ContentionEventListenerEmitsStartOnlyWindowSoHangsAreVisible()
+    {
+        var actual = new List<ContentionEventStatistics>(1);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            cts.Cancel();
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Threads that block and never acquire the lock emit ContentionStart without a matching
+        // ContentionStop. The window must still be emitted, otherwise a deadlock looks quiet.
+        listener.ProcessEvent("ContentionStart_V2", origin, [(byte)0, 0U]);
+        listener.ProcessEvent("ContentionStart_V2", origin.AddTicks(1), [(byte)0, 0U]);
+        listener.ProcessEvent("ContentionStart_V2", origin.AddTicks(2), [(byte)0, 0U]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        var result = await Assert.That(actual).HasSingleItem();
+        await Assert.That(result.StartCount).IsEqualTo(3L);
+        await Assert.That(result.Count).IsEqualTo(0L);
+        await Assert.That(result.DurationNsSum).IsEqualTo(0D);
+        await Assert.That(result.DurationNsMean).IsEqualTo(0D);
+        await Assert.That(result.Time).IsEqualTo(origin.AddTicks(2).Ticks);
     }
 
     [Test]
@@ -1079,6 +1252,10 @@ public class EventListenerDataIntegrityTest
         await Assert.That(baseline != new ContentionEventStatistics(1, 0, 4, 90D, 40D)).IsTrue();
         await Assert.That(baseline != new ContentionEventStatistics(1, 0, 3, 91D, 40D)).IsTrue();
         await Assert.That(baseline != new ContentionEventStatistics(1, 0, 3, 90D, 41D)).IsTrue();
+        // The five-argument constructor represents a stop-only window: StartCount is zero.
+        await Assert.That(baseline.StartCount).IsEqualTo(0L);
+        await Assert.That(baseline == new ContentionEventStatistics(1, 0, 3, 0, 90D, 40D)).IsTrue();
+        await Assert.That(baseline != new ContentionEventStatistics(1, 0, 3, 2, 90D, 40D)).IsTrue();
     }
 
     [Test]
@@ -1192,6 +1369,37 @@ public class EventListenerDataIntegrityTest
             await Assert.That(worker.Type).IsEqualTo(ThreadPoolStatisticType.ThreadPoolWorkerStartStop);
             await Assert.That(worker.ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo((uint)(20 + i));
         }
+    }
+
+    [Test]
+    public async Task ThreadPoolEventListenerTracksWorkerThreadStartAndStop()
+    {
+        var actual = new List<ThreadPoolEventStatistics>(2);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableThreadPoolEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == 2)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Start carries the same ActiveWorkerThreadCount payload as Stop. Without it, the worker
+        // count timeline has no increase points between timer samples.
+        listener.ProcessEvent("ThreadPoolWorkerThreadStart", origin, [11U, 0U, (ushort)0]);
+        listener.ProcessEvent("ThreadPoolWorkerThreadStop_V1", origin.AddTicks(1), [10U, 0U, (ushort)0]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(actual).Count().IsEqualTo(2);
+        await Assert.That(actual[0].Type).IsEqualTo(ThreadPoolStatisticType.ThreadPoolWorkerStartStop);
+        await Assert.That(actual[0].ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo(11U);
+        await Assert.That(actual[0].ThreadPoolWorker.Time).IsEqualTo(origin.Ticks);
+        await Assert.That(actual[1].ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo(10U);
     }
 
     [Test]

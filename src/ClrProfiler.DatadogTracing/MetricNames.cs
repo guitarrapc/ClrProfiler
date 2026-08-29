@@ -38,6 +38,15 @@ internal static class MetricNames
         /// </summary>
         internal const string ContentionStartEndDurationNsMax = "clr_diagnostics_event.contention.startend_duration_ns_max";
 
+        /// <summary>
+        /// Counter incremented by the number of contention begins (ContentionStart) in each
+        /// aggregation window. The cumulative difference against
+        /// <see cref="ContentionStartEndCount"/> approximates threads still blocked on a lock, so
+        /// a deadlock shows as starts accumulating without completions. Tags:
+        /// <c>contention_type:0|1|unknown</c>.
+        /// </summary>
+        internal const string ContentionStartCount = "clr_diagnostics_event.contention.start_count";
+
         /// <summary>Counter. Tags: <c>gc_gen</c>, <c>gc_type</c>, and <c>gc_reason</c>.</summary>
         internal const string GcStartEndCount = "clr_diagnostics_event.gc.startend_count";
 
@@ -66,6 +75,20 @@ internal static class MetricNames
         /// <summary>Gauge counting GC handles in use at the end of each collection. No metric-specific tags.</summary>
         internal const string GcHeapStatsGcHandleCount = "clr_diagnostics_event.gc.heapstats_gc_handle_count";
 
+        /// <summary>
+        /// Counter incremented once per collection, from GCGlobalHeapHistory. Tags:
+        /// <c>gc_gen</c> (the condemned generation), <c>gc_reason</c>, and
+        /// <c>gc_compaction:0|1</c> — whether the collection compacted the heap.
+        /// </summary>
+        internal const string GcGlobalCount = "clr_diagnostics_event.gc.global_count";
+
+        /// <summary>
+        /// Gauge carrying the memory load percentage (0-100) the GC observed for each collection.
+        /// Zero on runtimes whose GCGlobalHeapHistory payload predates the field. No
+        /// metric-specific tags.
+        /// </summary>
+        internal const string GcGlobalMemoryPressure = "clr_diagnostics_event.gc.global_memory_pressure";
+
         /// <summary>Gauge without metric-specific tags.</summary>
         internal const string ThreadPoolAvailableWorkerThreadCount = "clr_diagnostics_event.threadpool.available_workerthread_count";
 
@@ -80,6 +103,7 @@ internal static class MetricNames
             ContentionStartEndCount,
             ContentionStartEndDurationNsSum,
             ContentionStartEndDurationNsMax,
+            ContentionStartCount,
             GcStartEndCount,
             GcStartEndDurationMs,
             GcSuspendObjectCount,
@@ -88,6 +112,8 @@ internal static class MetricNames
             GcHeapStatsFinalizationPromotedBytes,
             GcHeapStatsPinnedObjectCount,
             GcHeapStatsGcHandleCount,
+            GcGlobalCount,
+            GcGlobalMemoryPressure,
             ThreadPoolAvailableWorkerThreadCount,
             ThreadPoolAdjustmentAverageThroughput,
             ThreadPoolAdjustmentNewWorkerThreadsCount,

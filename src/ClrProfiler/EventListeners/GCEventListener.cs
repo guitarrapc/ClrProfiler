@@ -148,6 +148,23 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
                 // write to channel
                 _dispatcher.TryWrite(new GCEventStatistics(GCEventType.GCHeapStats, new(), new(), stat));
             }
+            else if (eventName.StartsWith("GCGlobalHeapHistory_", StringComparison.OrdinalIgnoreCase)) // GCGlobalHeapHistory_V1 / V2 ...
+            {
+                // Standalone per-collection summary; no correlation state. Payload layout:
+                // FinalYoungestDesired, NumHeaps, CondemnedGeneration, Gen0ReductionCount, Reason,
+                // GlobalMechanisms, ClrInstanceID[, PauseMode, MemoryPressure, ...]. Later
+                // versions append fields, so indexes stay stable.
+                var condemnedGeneration = ReadRequiredUInt32(payload, 2);
+                var reason = ReadRequiredUInt32(payload, 4);
+                var globalMechanisms = ReadRequiredUInt32(payload, 5);
+                var memoryPressure = payload is not null && payload.Count > 8 && payload[8] is not null
+                    ? ReadRequiredUInt32(payload, 8)
+                    : 0U;
+                var stat = new GCGlobalHistoryStatistics(timeStamp.Ticks, condemnedGeneration, reason, globalMechanisms, memoryPressure);
+
+                // write to channel
+                _dispatcher.TryWrite(new GCEventStatistics(GCEventType.GCGlobalHistory, new(), new(), new(), stat));
+            }
             else if (eventName.StartsWith("GCSuspendEEBegin", StringComparison.OrdinalIgnoreCase))
             {
                 var reason = ReadRequiredUInt32(payload, 0);
@@ -175,7 +192,7 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
         }
         catch (Exception ex)
         {
-            _onEventError?.Invoke(ex);
+            ProfilerCallbacks.ReportError(_onEventError, ex);
         }
     }
 

@@ -23,8 +23,14 @@ public readonly struct ContentionEventStatistics : IEquatable<ContentionEventSta
     /// 1 : native
     /// </summary>
     public readonly byte Flag;
-    /// <summary>Number of contention events represented by this value.</summary>
+    /// <summary>Number of completed contention events (ContentionStop) represented by this value.</summary>
     public readonly long Count;
+    /// <summary>
+    /// Number of contention begins (ContentionStart) observed in this window. A window whose
+    /// starts exceed its completions over time indicates threads that are still blocked; a
+    /// deadlock produces windows with starts and no completions instead of silence.
+    /// </summary>
+    public readonly long StartCount;
     /// <summary>Total contention duration in nanoseconds across the represented events.</summary>
     public readonly double DurationNsSum;
     /// <summary>Longest single contention duration in nanoseconds across the represented events.</summary>
@@ -33,17 +39,24 @@ public readonly struct ContentionEventStatistics : IEquatable<ContentionEventSta
     /// <summary>Mean contention duration in nanoseconds, or 0 when nothing was aggregated.</summary>
     public double DurationNsMean => Count == 0 ? 0D : DurationNsSum / Count;
 
-    /// <summary>Creates a value representing a single contention event.</summary>
+    /// <summary>Creates a value representing a single completed contention event.</summary>
     public ContentionEventStatistics(long time, byte flag, double durationNs)
-        : this(time, flag, 1, durationNs, durationNs)
+        : this(time, flag, 1, 0, durationNs, durationNs)
     {
     }
 
+    /// <summary>Creates a window of completed contention events with no observed begins.</summary>
     public ContentionEventStatistics(long time, byte flag, long count, double durationNsSum, double durationNsMax)
+        : this(time, flag, count, 0, durationNsSum, durationNsMax)
+    {
+    }
+
+    public ContentionEventStatistics(long time, byte flag, long count, long startCount, double durationNsSum, double durationNsMax)
     {
         Time = time;
         Flag = flag;
         Count = count;
+        StartCount = startCount;
         DurationNsSum = durationNsSum;
         DurationNsMax = durationNsMax;
     }
@@ -59,13 +72,14 @@ public readonly struct ContentionEventStatistics : IEquatable<ContentionEventSta
         return Time == other.Time
             && Flag == other.Flag
             && Count == other.Count
+            && StartCount == other.StartCount
             && DurationNsSum == other.DurationNsSum
             && DurationNsMax == other.DurationNsMax;
     }
 
     public override int GetHashCode()
     {
-        return HashCode.Combine(Time, Flag, Count, DurationNsSum, DurationNsMax);
+        return HashCode.Combine(Time, Flag, Count, StartCount, DurationNsSum, DurationNsMax);
     }
 
     public static bool operator ==(ContentionEventStatistics left, ContentionEventStatistics right)

@@ -25,6 +25,10 @@ public class LoggerTrackerCallbackHandler(ILogger logger) : IClrTrackerCallbackH
         {
             LoggerTracing.GcEventHeapStats(statistics.GCHeapStatistics, logger);
         }
+        else if (statistics.Type == GCEventType.GCGlobalHistory)
+        {
+            LoggerTracing.GcEventGlobalHistory(statistics.GCGlobalHistoryStatistics, logger);
+        }
         return Task.CompletedTask;
     }
 

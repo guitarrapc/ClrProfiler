@@ -37,6 +37,25 @@ public class MetricTagProjectionTest
     }
 
     [Test]
+    public async Task ContentionEventStartEnd_ProjectsStartCountAndOmitsEmptyHalves()
+    {
+        var logger = new CapturingLogger();
+
+        // Stops and starts in one window: the three stop metrics plus the start counter.
+        LoggerTracing.ContentionEventStartEnd(new ContentionEventStatistics(1, 0, 3, 2, 90, 40), logger);
+        await Assert.That(logger.Messages).Count().IsEqualTo(4);
+        await Assert.That(logger.Messages[3]).Contains("start_count: 2,");
+        await Assert.That(logger.Messages[3]).Contains("tags: contention_type:0");
+
+        // A start-only window (threads blocked, nothing completed yet) emits only the start
+        // counter — zero-valued duration metrics would pollute the stop series.
+        logger.Messages.Clear();
+        LoggerTracing.ContentionEventStartEnd(new ContentionEventStatistics(1, 0, 0, 5, 0, 0), logger);
+        var startOnly = await Assert.That(logger.Messages).HasSingleItem();
+        await Assert.That(startOnly).Contains("start_count: 5,");
+    }
+
+    [Test]
     [Arguments(0u, "soh")]
     [Arguments(1u, "induced")]
     [Arguments(2u, "low_memory")]
@@ -82,6 +101,29 @@ public class MetricTagProjectionTest
         await Assert.That(logger.Messages[5]).Contains("heapstats_finalization_promoted_bytes: 55,");
         await Assert.That(logger.Messages[6]).Contains("heapstats_pinned_object_count: 7,");
         await Assert.That(logger.Messages[7]).Contains("heapstats_gc_handle_count: 900,");
+    }
+
+    [Test]
+    public async Task GcEventGlobalHistory_ProjectsCondemnedGenerationReasonAndCompaction()
+    {
+        var logger = new CapturingLogger();
+
+        // Mechanisms 0x3 = Concurrent | Compaction; condemned gen 2, reason 1 (induced).
+        LoggerTracing.GcEventGlobalHistory(new GCGlobalHistoryStatistics(123, 2, 1, 3, 42), logger);
+
+        await Assert.That(logger.Messages).Count().IsEqualTo(2);
+        await Assert.That(logger.Messages[0]).Contains("global_count: 1,");
+        await Assert.That(logger.Messages[0]).Contains("tags: gc_gen:2,gc_reason:induced,gc_compaction:1");
+        await Assert.That(logger.Messages[1]).Contains("global_memory_pressure: 42,");
+
+        logger.Messages.Clear();
+        LoggerTracing.GcEventGlobalHistory(new GCGlobalHistoryStatistics(124, 0, 0, 0, 10), logger);
+        await Assert.That(logger.Messages[0]).Contains("tags: gc_gen:0,gc_reason:soh,gc_compaction:0");
+
+        // Unknown runtime values stay bounded instead of throwing or growing the tag space.
+        logger.Messages.Clear();
+        LoggerTracing.GcEventGlobalHistory(new GCGlobalHistoryStatistics(125, uint.MaxValue, uint.MaxValue, 2, 0), logger);
+        await Assert.That(logger.Messages[0]).Contains("tags: gc_gen:unknown,gc_reason:unknown,gc_compaction:1");
     }
 
     [Test]

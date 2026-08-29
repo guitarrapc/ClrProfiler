@@ -32,6 +32,7 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
     private readonly Func<ContentionEventStatistics, Task> _onEventEmit;
     private readonly Action<Exception> _onEventError;
     private readonly long[] _readerCounts = new long[ContentionFlagCount];
+    private readonly long[] _readerStartCounts = new long[ContentionFlagCount];
     private readonly long[] _readerDurationSumPs = new long[ContentionFlagCount];
     private readonly long[] _readerDurationMaxPs = new long[ContentionFlagCount];
     private readonly long[] _readerTimes = new long[ContentionFlagCount];
@@ -71,24 +72,33 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
     {
         try
         {
-            if (!string.IsNullOrWhiteSpace(eventName) && eventName.StartsWith("ContentionStop_", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(eventName)) return;
+
+            if (eventName.StartsWith("ContentionStop_", StringComparison.OrdinalIgnoreCase))
             {
                 long time = timeStamp.Ticks;
                 var flag = ReadRequiredByte(payload, 0);
                 var durationNs = ReadRequiredDouble(payload, 2);
-                Aggregate(time, flag, durationNs);
+                Aggregate(new ContentionSample(time, Volatile.Read(ref _generation), ToPicoseconds(durationNs), flag, IsStart: false));
+            }
+            else if (eventName.StartsWith("ContentionStart_", StringComparison.OrdinalIgnoreCase))
+            {
+                // A start with no later stop is a thread still blocked on the lock. Counting
+                // starts keeps long or never-completing contention visible while it is happening.
+                long time = timeStamp.Ticks;
+                var flag = ReadRequiredByte(payload, 0);
+                Aggregate(new ContentionSample(time, Volatile.Read(ref _generation), 0L, flag, IsStart: true));
             }
         }
         catch (Exception ex)
         {
-            _onEventError?.Invoke(ex);
+            ProfilerCallbacks.ReportError(_onEventError, ex);
         }
     }
 
-    private void Aggregate(long time, byte flag, double durationNs)
+    private void Aggregate(in ContentionSample sample)
     {
-        var durationPs = ToPicoseconds(durationNs);
-        if (!_events.TryEnqueue(new ContentionSample(time, Volatile.Read(ref _generation), durationPs, flag)))
+        if (!_events.TryEnqueue(sample))
         {
             Interlocked.Increment(ref _droppedEventCount);
             return;
@@ -137,9 +147,16 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
     private void AggregateOnReader(in ContentionSample sample)
     {
         var flag = sample.Flag;
-        _readerCounts[flag]++;
-        _readerDurationSumPs[flag] += sample.DurationPs;
-        _readerDurationMaxPs[flag] = Math.Max(_readerDurationMaxPs[flag], sample.DurationPs);
+        if (sample.IsStart)
+        {
+            _readerStartCounts[flag]++;
+        }
+        else
+        {
+            _readerCounts[flag]++;
+            _readerDurationSumPs[flag] += sample.DurationPs;
+            _readerDurationMaxPs[flag] = Math.Max(_readerDurationMaxPs[flag], sample.DurationPs);
+        }
         _readerTimes[flag] = Math.Max(_readerTimes[flag], sample.Time);
         _readerActiveFlags[flag / 64] |= 1UL << (flag % 64);
     }
@@ -160,9 +177,11 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
                     _readerTimes[flag],
                     (byte)flag,
                     _readerCounts[flag],
+                    _readerStartCounts[flag],
                     _readerDurationSumPs[flag] / PicosecondsPerNanosecond,
                     _readerDurationMaxPs[flag] / PicosecondsPerNanosecond);
                 _readerCounts[flag] = 0;
+                _readerStartCounts[flag] = 0;
                 _readerDurationSumPs[flag] = 0;
                 _readerDurationMaxPs[flag] = 0;
                 _readerTimes[flag] = 0;
@@ -179,7 +198,8 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
         }
         catch (Exception ex)
         {
-            _onEventError.Invoke(ex);
+            // A throwing emit callback must not terminate the reader loop.
+            ProfilerCallbacks.ReportError(_onEventError, ex);
         }
     }
 
@@ -292,7 +312,7 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
         }
     }
 
-    private readonly record struct ContentionSample(long Time, long Generation, long DurationPs, byte Flag);
+    private readonly record struct ContentionSample(long Time, long Generation, long DurationPs, byte Flag, bool IsStart);
 
     /// <summary>
     /// Fixed-capacity MPSC queue. Producer reservation has a strict retry bound and never waits;

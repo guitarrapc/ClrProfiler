@@ -51,7 +51,8 @@ internal sealed class BoundedChannelDispatcher<T> where T : struct
                     }
                     catch (Exception ex)
                     {
-                        _onEventError.Invoke(ex);
+                        // A throwing emit callback must not terminate this reader loop.
+                        ProfilerCallbacks.ReportError(_onEventError, ex);
                     }
                 }
             }
