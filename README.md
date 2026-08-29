@@ -10,11 +10,15 @@
   Seamlessly integrates with cloud tracing services, with built-in support for Datadog, enabling real-time monitoring and analytics.
 - **Ease of Use**
   Designed for simplicity, ClrProfiler allows for straightforward integration into your projects, facilitating immediate performance tracking without the need for complex configurations.
+- **No Silent Data Loss**
+  Event delivery is non-blocking and bounded, and anything the profiler had to discard is counted and exported as a metric, so you always know when data is incomplete.
 
-## Benchmarks
+## Packages
 
-`src/ClrProfiler.Benchmarks` measures representative GC, contention, and ThreadPool workloads with ClrProfiler disabled and enabled. BenchmarkDotNet reports execution time, allocated bytes, and GC collection counts for both conditions.
-
+| Package | Description | Target Frameworks |
+| --- | --- | --- |
+| `ClrProfiler` | Core library. Zero dependencies. Use this to receive CLR statistics with your own callbacks. | `net8.0`, `net9.0`, `net10.0` |
+| `ClrProfiler.DatadogTracing` | Datadog (DogStatsD) and `ILogger` adapters on top of the core library. | `net8.0`, `net9.0` |
 
 ## Getting Started
 
@@ -44,6 +48,8 @@ tracker.StartTracker();
 
 Now you are ready to use ClrTracker on your application. Metrics will be sent to Datadog by dogstatsd.
 
+CLR event subscription starts in `StartTracker()`, after the callback handlers are registered, so no event is delivered before there is a handler to observe it. Events that occur before `StartTracker()` (for example GCs during application startup) are not captured as events; the cumulative timer metrics below still cover their totals. Use `StopTracker()` / `RestartTracker()` to pause and resume collection (events during a stop are not collected), and `CancelTracker()` or `Dispose()` to end it.
+
 ### Select instrumentation
 
 All instrumentation remains enabled by default. For lower overhead, select only the CLR events and timer samples your application consumes:
@@ -60,7 +66,21 @@ tracker.EnableTracker();
 tracker.StartTracker();
 ```
 
+Available features:
+
+| `ProfilerFeature` | Source | What you get |
+| --- | --- | --- |
+| `GCEvent` | CLR events | GC start/end duration, suspension (pause) duration, post-collection heap statistics |
+| `ThreadPoolEvent` | CLR events | ThreadPool worker adjustments, starvation detection |
+| `ContentionEvent` | CLR events | Monitor lock contention count and durations |
+| `GCInfoTimer` | Periodic sampling | Heap size, allocation bytes, GC counts, generation sizes, cumulative pause time |
+| `ThreadInfoTimer` | Periodic sampling | ThreadPool thread counts, queue length, lock contention count |
+| `ProcessInfoTimer` | Periodic sampling | CPU, private bytes, working set |
+| `ProfilerDiagnosticsTimer` | Periodic sampling | How many events each profiler dropped (see below) |
+
 Unselected features do not create a listener, subscribe to runtime events, start a reader, or create a timer. The same `EnabledFeatures` option is available on `ProfilerTrackerOptions` when using the core package directly.
+
+Timer-based features sample once per minute by default. The interval is configurable through `ProfilerTrackerOptions.TimerOption` when using the core `ClrProfiler` package directly; `ClrTracker` uses the default interval.
 
 ### Add custom instrumentation
 
@@ -84,41 +104,90 @@ Each factory is invoked once when `ProfilerTracker` is constructed. When using `
 
 `IProfiler.DroppedEventCount` reports how many events a profiler discarded; it defaults to `0`, so a profiler written before the member existed keeps compiling. A custom profiler that drops events should report its own cumulative count so the profiler diagnostics metric below covers it.
 
-### Observe what the profiler itself dropped
+## Metrics
 
-Every bounded queue in ClrProfiler retains the newest values and discards the rest, so a reader that cannot keep up loses data. `ProfilerFeature.ProfilerDiagnosticsTimer` (enabled by default) samples `IProfiler.DroppedEventCount` for every profiler the tracker owns and emits one `ProfilerDiagnosticsStatistics` per profiler per tick, on the same `TimerOption` interval as the other timers.
+Metric names are stable and grouped by origin: `clr_diagnostics_event.*` comes from CLR events as they happen, and `clr_diagnostics_timer.*` comes from periodic sampling (every minute by default).
+
+### Event metrics
+
+| Metric | statsd type | Tags | Description |
+| --- | --- | --- | --- |
+| `clr_diagnostics_event.gc.startend_count` | count | `gc_gen`, `gc_type`, `gc_reason` | Completed garbage collections. |
+| `clr_diagnostics_event.gc.startend_duration_ms` | gauge | `gc_gen`, `gc_type`, `gc_reason` | Duration of a collection in milliseconds. For background GC this is wall-clock time including the concurrent phase, not pause time. |
+| `clr_diagnostics_event.gc.suspend_object_count` | count | `gc_suspend_reason` | Suspension count reported by the runtime's suspend event. |
+| `clr_diagnostics_event.gc.suspend_duration_ms` | gauge | `gc_suspend_reason` | How long the execution engine was suspended (application pause) in milliseconds. |
+| `clr_diagnostics_event.gc.heapstats_size_bytes` | gauge | `gc_gen:0\|1\|2\|loh\|poh` | Per-generation heap size after each collection, from `GCHeapStats_V1`/`GCHeapStats_V2`. Runtimes emitting the V1 payload predate the pinned object heap, so `gc_gen:poh` reports zero there. |
+| `clr_diagnostics_event.gc.heapstats_finalization_promoted_bytes` | gauge | — | Bytes promoted because of finalization in each collection. |
+| `clr_diagnostics_event.gc.heapstats_pinned_object_count` | gauge | — | Pinned objects observed by each collection. |
+| `clr_diagnostics_event.gc.heapstats_gc_handle_count` | gauge | — | GC handles in use at the end of each collection. |
+| `clr_diagnostics_event.contention.startend_count` | count | `contention_type` | Monitor lock contentions. |
+| `clr_diagnostics_event.contention.startend_duration_ns_sum` | count | `contention_type` | Total contention duration in nanoseconds. Divide by `startend_count` for the exact mean. |
+| `clr_diagnostics_event.contention.startend_duration_ns_max` | histogram | `contention_type` | Longest single contention per aggregation window. Read the `.max` series for the worst contention in a flush interval; the `.avg`, `.count`, and percentile series describe window maxima, not individual contentions. |
+| `clr_diagnostics_event.threadpool.available_workerthread_count` | gauge | — | Active worker threads when a worker stops. |
+| `clr_diagnostics_event.threadpool.adjustment_avg_throughput` | gauge | `thread_adjust_reason` | Average throughput measured by the ThreadPool hill-climbing algorithm. |
+| `clr_diagnostics_event.threadpool.adjustment_new_workerthreads_count` | gauge | `thread_adjust_reason` | New worker thread count after an adjustment. |
+
+When a ThreadPool adjustment is caused by starvation, the Datadog tracker additionally submits a Datadog Event (`ThreadPool Starvation detected`, alert type `warning`) so you can alert on it directly.
+
+Contention metrics use only statsd types that aggregate correctly across many submissions within one flush interval (counts add up, histogram `.max` stays the true maximum). A gauge is deliberately not used for them: a gauge keeps only the last value per flush interval, which would discard every aggregation window but one.
+
+Tag values are bounded. Values the library does not recognize (for example from a newer runtime) are reported as `unknown` instead of creating unbounded tag cardinality:
+
+- `gc_gen`: `0|1|2` (`0|1|2|loh|poh` on heap-stats sizes)
+- `gc_type`: `0|1|2`
+- `gc_reason`: `soh|induced|low_memory|empty|loh|oos_soh|oos_loh|incuded_non_forceblock|stress_testing|finalizer_low_memory_induced|user_gc_request`
+- `gc_suspend_reason`: `other|gc|appdomain_shudown|code_pitch|shutdown|debugger|prep_gc`
+- `thread_adjust_reason`: `warmup|initializing|random_move|climbing_move|change_point|stabilizing|starvation|timedout|cooperative_blocking`
+- `contention_type`: `0|1`
+
+### Timer metrics
+
+Sampled every minute by default. GC timer metrics carry `gc_mode:Workstation|Server`, `latency_mode`, and `compaction_mode` tags; process and thread metrics have no metric-specific tags.
+
+| Metric | statsd type | Tags | Description |
+| --- | --- | --- | --- |
+| `clr_diagnostics_timer.gc.heap_size_bytes` | gauge | GC mode tags | Managed heap size (`GC.GetTotalMemory`). |
+| `clr_diagnostics_timer.gc.total_allocation_bytes` | gauge | GC mode tags | Cumulative allocated bytes since process start. Read a `diff` for the allocation rate. |
+| `clr_diagnostics_timer.gc.gc_count` | gauge | `gc_gen:0\|1\|2` + GC mode tags | Cumulative collection count per generation. |
+| `clr_diagnostics_timer.gc.gc_size` | gauge | `gc_gen:0\|1\|2\|loh` + GC mode tags | Generation size after the most recent collection. |
+| `clr_diagnostics_timer.gc.time_in_gc_percent` | gauge | GC mode tags | Percentage of time spent in the most recent GC. |
+| `clr_diagnostics_timer.gc.total_pause_time_ms` | gauge | GC mode tags | Cumulative milliseconds the runtime paused for GC since process start (`GC.GetTotalPauseDuration()`). See below. |
+| `clr_diagnostics_timer.process.cpu` | gauge | — | Process CPU usage. |
+| `clr_diagnostics_timer.process.private_bytes` | gauge | — | Private memory bytes. |
+| `clr_diagnostics_timer.process.working_sets` | gauge | — | Working set bytes. |
+| `clr_diagnostics_timer.thread.available_worker_threads` / `available_completion_port_threads` | gauge | — | Available ThreadPool threads. |
+| `clr_diagnostics_timer.thread.max_worker_threads` / `max_completion_port_threads` | gauge | — | ThreadPool maximums. |
+| `clr_diagnostics_timer.thread.using_worker_threads` / `using_completion_port_threads` | gauge | — | Threads currently in use. |
+| `clr_diagnostics_timer.thread.thread_count` | gauge | — | ThreadPool thread count. |
+| `clr_diagnostics_timer.thread.queue_length` | gauge | — | Pending ThreadPool work item count. |
+| `clr_diagnostics_timer.thread.lock_contention_count` | gauge | — | Cumulative Monitor lock contention count from the runtime. |
+| `clr_diagnostics_timer.thread.completed_items_count` | gauge | — | Cumulative completed ThreadPool work items. |
+| `clr_diagnostics_timer.profiler.dropped_event_count` | gauge | `profiler` | Cumulative events each profiler discarded. See below. |
+
+### Loss-free counters vs. event metrics
+
+Event metrics can undercount under extreme load (see the next section), so the timer metrics deliberately include cumulative runtime counters that cannot drop:
+
+- `clr_diagnostics_timer.gc.total_pause_time_ms` stays exact even when `clr_diagnostics_event.gc.*` undercounts. Read a `diff` or `derivative` of the series for a loss-free pause-time rate.
+- `clr_diagnostics_timer.gc.gc_count` and `clr_diagnostics_timer.gc.total_allocation_bytes` are cumulative for the process lifetime, independent of event delivery.
+- Generation sizes (`clr_diagnostics_timer.gc.gc_size`) come from the public `GC.GetGCMemoryInfo().GenerationInfo` API rather than private reflection, so they keep working across runtime updates.
+
+## Observe what the profiler itself dropped
+
+Event delivery inside ClrProfiler never blocks your application: every listener buffers events in a bounded queue that keeps the newest values and discards the rest when a consumer cannot keep up. Nothing is lost silently — every discarded event is counted.
+
+`ProfilerFeature.ProfilerDiagnosticsTimer` (enabled by default) samples `IProfiler.DroppedEventCount` for every profiler the tracker owns and emits one sample per profiler per tick, on the same interval as the other timers:
 
 ```
 clr_diagnostics_timer.profiler.dropped_event_count:0|g|#app:YourAppName,profiler:GCEventProfiler
 clr_diagnostics_timer.profiler.dropped_event_count:0|g|#app:YourAppName,profiler:ContentionEventProfiler
 ```
 
-The value is cumulative for the profiler's lifetime, so read a `diff` or `derivative` of the series. Any non-zero rate means the `clr_diagnostics_event.*` metrics are undercounting for that profiler over the same window; treat a persistently rising count as a signal that the reader is starved rather than as a signal about the application.
+The value is cumulative for the profiler's lifetime, so read a `diff` or `derivative` of the series. Any non-zero rate means the `clr_diagnostics_event.*` metrics are undercounting for that profiler over the same window; treat a persistently rising count as a signal that the metric consumer is starved rather than as a signal about the application.
 
-Because the counts are cumulative, a stalled reader delays this metric instead of corrupting it: the newest sample still carries the true total. The diagnostics reader is independent of the other listeners' readers, so a listener whose reader stalls still has its rising count reported.
+Because the counts are cumulative, a stalled consumer delays this metric instead of corrupting it: the newest sample still carries the true total. The diagnostics reader is independent of the other listeners' readers, so a listener whose reader stalls still has its rising count reported.
 
 The `profiler` tag is bounded to the built-in profiler names; any other name, including one from `AdditionalProfilerFactories`, is reported as `profiler:unknown` so a caller-controlled string cannot grow the metric's cardinality.
-
-### GC heap statistics and loss-free pause time
-
-`ProfilerFeature.GCEvent` also parses the runtime's `GCHeapStats_V1`/`GCHeapStats_V2` event, which the CLR emits at the end of every collection under the same GC keyword. Each heap-stats event carries the exact post-collection heap state and is delivered as `GCEventStatistics` with `GCEventType.GCHeapStats`:
-
-```
-clr_diagnostics_event.gc.heapstats_size_bytes:1234|g|#app:YourAppName,gc_gen:0
-clr_diagnostics_event.gc.heapstats_size_bytes:1234|g|#app:YourAppName,gc_gen:poh
-clr_diagnostics_event.gc.heapstats_finalization_promoted_bytes:0|g|#app:YourAppName
-clr_diagnostics_event.gc.heapstats_pinned_object_count:3|g|#app:YourAppName
-clr_diagnostics_event.gc.heapstats_gc_handle_count:521|g|#app:YourAppName
-```
-
-Sizes are tagged `gc_gen:0|1|2|loh|poh`. Runtimes that emit the V1 payload predate the pinned object heap, so `gc_gen:poh` reports zero there.
-
-`ProfilerFeature.GCInfoTimer` samples complement the event-based metrics with runtime counters that cannot drop:
-
-- `clr_diagnostics_timer.gc.total_pause_time_ms` carries `GC.GetTotalPauseDuration()`, the cumulative milliseconds the runtime paused for GC since process start. Read a `diff` or `derivative` of the series for a loss-free pause-time rate; it stays exact even when `clr_diagnostics_event.gc.*` undercounts under load.
-- Generation sizes (`clr_diagnostics_timer.gc.gc_size`) come from the public `GC.GetGCMemoryInfo().GenerationInfo` API rather than private reflection, so they keep working across runtime updates.
-
-CLR event subscription starts in `StartTracker()`, after the callback handlers are registered — no event can arrive between `EnableTracker()` and `StartTracker()` only to be discarded unseen. If an event ever reaches a listener without a registered handler, it is counted into `DroppedEventCount` instead of being silently lost. The GC event delivery channel retains 512 values (other listeners retain 50) because one collection emits start/end, suspend, and heap-stats values and gen0 bursts arrive faster than a metric backend flushes.
 
 ## Debugging
 
@@ -134,7 +203,7 @@ tracker.EnableTracker();
 tracker.StartTracker();
 ```
 
-Metric tags are precomputed when the tracker is enabled, before CLR listeners start. Runtime values that are newer than the known tag mappings use a bounded `unknown` tag instead of creating an unbounded cache entry or throwing. Logger metric projection avoids formatting work when debug logging is disabled.
+Logger metric projection avoids formatting work when debug logging is disabled, so leaving the Logger tracker in place with debug logging off costs almost nothing.
 
 ## Custom Profiling
 
@@ -222,9 +291,9 @@ tracker.StartTracker();
 
 This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
 
-Bounded delivery queues keep producers non-blocking and retain the newest values when a reader falls behind. `GCEventListener`, `ThreadPoolEventListener`, `GCInfoTimerListener`, `ProcessInfoTimerListener`, `ThreadInfoTimerListener`, and `ProfilerDiagnosticsTimerListener` expose a cumulative `DroppedEventCount` for values evicted from their delivery channels. The counter is thread-safe and is not reset by stop or restart. Each count is also surfaced as a metric; see [Observe what the profiler itself dropped](#observe-what-the-profiler-itself-dropped).
+Your callbacks run on dedicated reader tasks, never on the threads that emit CLR events, so a slow callback slows delivery to itself but never blocks the application. If a callback throws, the exception is routed to `OnException` and delivery continues.
 
-Contention callbacks place samples in a fixed-capacity MPSC queue and aggregate them by contention flag on the single reader. One `ContentionEventStatistics` can therefore represent many accepted events, while its `Count`, duration sum, maximum, and timestamp always come from the same delivery window.
+Contention events are aggregated before delivery: one `ContentionEventStatistics` can represent many contention events observed in the same delivery window, summarized by contention flag.
 
 | Member | Meaning |
 | --- | --- |
@@ -234,28 +303,16 @@ Contention callbacks place samples in a fixed-capacity MPSC queue and aggregate 
 | `DurationNsMean` | `DurationNsSum / Count`, or 0 when nothing was aggregated. |
 | `Time` | Timestamp of the newest event observed for the flag. The duration fields summarize the whole window, so they are not tied to this timestamp. |
 
-The producer never waits for the reader and does not use an unbounded spin loop. Queue reservation has a fixed retry limit; a sample is rejected when the queue is full or that limit is exhausted. `ContentionEventListener.DroppedEventCount` exposes the cumulative rejected count, which is also exported as `clr_diagnostics_timer.profiler.dropped_event_count{profiler:ContentionEventProfiler}`. Durations of accepted samples accumulate as whole picoseconds; non-finite or negative durations contribute 0 while still being counted.
-
-Aggregates are reset per dispatch. For accepted samples, every individual value and the totals across dispatches are exact.
-
-Stopping the profiler advances the queue generation. Samples accepted before a stop are dispatched separately from samples accepted after a restart, even when the reader drains both generations later.
-
-A dispatch happens every time the reader drains, which is far more often than a metrics backend flushes. Contention metrics therefore only use statsd types that aggregate correctly over many submissions within one flush interval:
-
-| Metric | statsd type | Value | Why the type |
-| --- | --- | --- | --- |
-| `clr_diagnostics_event.contention.startend_count` | counter | `Count` | Counts add across every accepted dispatch. |
-| `clr_diagnostics_event.contention.startend_duration_ns_sum` | counter | `DurationNsSum` | Sums add across accepted samples. |
-| `clr_diagnostics_event.contention.startend_duration_ns_max` | histogram | `DurationNsMax` | The maximum of the accepted window maxima is the accepted maximum for the interval. |
-
-Read `startend_duration_ns_max.max` for the worst accepted contention in an interval, and `startend_duration_ns_sum / startend_count` for the exact mean of accepted samples. The `.avg`, `.count`, and percentile series derived from the histogram describe window maxima rather than individual contentions, so do not read them as durations.
-
-A gauge is deliberately not used for any of these. A gauge keeps only the last value submitted within a flush interval, which would discard every aggregation window but one.
+For accepted samples, the values and the totals across deliveries are exact. Samples that could not be accepted (queue full under extreme load) are counted into `DroppedEventCount` and surfaced by the diagnostics metric; see [Observe what the profiler itself dropped](#observe-what-the-profiler-itself-dropped).
 
 ## Sandbox
 
-Run ConsoleApp, then metrics ingested will shown on Console. Sandbox runs both Server and Client. Server is listen UDP Server on `127.0.0.1:8125` and accept request from local datadog agent.
-You will see following messages.
+The `sandbox` folder contains two runnable samples:
+
+- `sandbox/ConsoleApp` runs the Datadog tracker end to end in a single process: it starts a UDP server on `127.0.0.1:8125` that plays the role of a local Datadog agent, allocates memory and forces GCs, and prints every ingested metric to the console.
+- `sandbox/CustomConsoleApp` demonstrates `ClrTrackerType.Custom` with an `IClrTrackerCallbackHandler` implementation that logs statistics through `ILogger`.
+
+Running ConsoleApp shows messages like the following:
 
 ```
 clr_diagnostics_event.gc.startend_count:17|c|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
@@ -285,19 +342,10 @@ clr_diagnostics_event.gc.suspend_duration_ms:0.7547999999999999|g|#app:ConsoleAp
 clr_diagnostics_event.gc.startend_duration_ms:2.6473|g|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
 
 datadog.dogstatsd.client.metrics:362|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
-datadog.dogstatsd.client.events:0|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
-datadog.dogstatsd.client.service_checks:0|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
 datadog.dogstatsd.client.bytes_sent:1928|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
-datadog.dogstatsd.client.bytes_dropped:0|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
 datadog.dogstatsd.client.packets_sent:8|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
-datadog.dogstatsd.client.packets_dropped:0|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
-datadog.dogstatsd.client.packets_dropped_queue:0|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
-datadog.dogstatsd.client.aggregated_context_by_type:10|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp,metrics_type:gauge
-datadog.dogstatsd.client.aggregated_context_by_type:8|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp,metrics_type:count
-datadog.dogstatsd.client.aggregated_context_by_type:0|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp,metrics_type:set
-clr_diagnostics_event.gc.suspend_object_count:1539|c|#app:ConsoleApp,gc_suspend_reason:gc
-clr_diagnostics_event.gc.startend_count:19|c|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
-
-clr_diagnostics_event.gc.suspend_duration_ms:2.0896|g|#app:ConsoleApp,gc_suspend_reason:gc
-clr_diagnostics_event.gc.startend_duration_ms:2.8951|g|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
 ```
+
+## Benchmarks
+
+`src/ClrProfiler.Benchmarks` measures representative GC, contention, and ThreadPool workloads with ClrProfiler disabled and enabled. BenchmarkDotNet reports execution time, allocated bytes, and GC collection counts for both conditions.
