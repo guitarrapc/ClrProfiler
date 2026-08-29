@@ -114,7 +114,8 @@ public class ProcessInfoTimerListener : TimerListenerBase, IDisposable, IChannel
         }
         catch (Exception ex)
         {
-            _onEventError?.Invoke(ex);
+            // A throwing error callback must not unwind into the timer thread.
+            ProfilerCallbacks.ReportError(_onEventError, ex);
         }
     }
 }
