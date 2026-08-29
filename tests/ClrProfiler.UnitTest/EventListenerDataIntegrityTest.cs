@@ -724,6 +724,63 @@ public class EventListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task ContentionEventListenerCountsStartEventsInTheSameWindow()
+    {
+        var actual = new List<ContentionEventStatistics>(1);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            cts.Cancel();
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        listener.ProcessEvent("ContentionStart_V2", origin, [(byte)0, 0U]);
+        listener.ProcessEvent("ContentionStart_V2", origin.AddTicks(1), [(byte)0, 0U]);
+        listener.ProcessEvent("ContentionStop_V1", origin.AddTicks(2), [(byte)0, 0U, 10D]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        var result = await Assert.That(actual).HasSingleItem();
+        await Assert.That(result.StartCount).IsEqualTo(2L);
+        await Assert.That(result.Count).IsEqualTo(1L);
+        await Assert.That(result.DurationNsSum).IsEqualTo(10D);
+        await Assert.That(result.Time).IsEqualTo(origin.AddTicks(2).Ticks);
+    }
+
+    [Test]
+    public async Task ContentionEventListenerEmitsStartOnlyWindowSoHangsAreVisible()
+    {
+        var actual = new List<ContentionEventStatistics>(1);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableContentionEventListener(value =>
+        {
+            actual.Add(value);
+            cts.Cancel();
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Threads that block and never acquire the lock emit ContentionStart without a matching
+        // ContentionStop. The window must still be emitted, otherwise a deadlock looks quiet.
+        listener.ProcessEvent("ContentionStart_V2", origin, [(byte)0, 0U]);
+        listener.ProcessEvent("ContentionStart_V2", origin.AddTicks(1), [(byte)0, 0U]);
+        listener.ProcessEvent("ContentionStart_V2", origin.AddTicks(2), [(byte)0, 0U]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        var result = await Assert.That(actual).HasSingleItem();
+        await Assert.That(result.StartCount).IsEqualTo(3L);
+        await Assert.That(result.Count).IsEqualTo(0L);
+        await Assert.That(result.DurationNsSum).IsEqualTo(0D);
+        await Assert.That(result.DurationNsMean).IsEqualTo(0D);
+        await Assert.That(result.Time).IsEqualTo(origin.AddTicks(2).Ticks);
+    }
+
+    [Test]
     public async Task ContentionEventListenerResetsDurationAggregatesBetweenFlushes()
     {
         var actual = new List<ContentionEventStatistics>(2);
