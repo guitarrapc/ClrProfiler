@@ -18,7 +18,7 @@
 | Package | Description | Target Frameworks |
 | --- | --- | --- |
 | `ClrProfiler` | Core library. Zero dependencies. Use this to receive CLR statistics with your own callbacks. | `net8.0`, `net9.0`, `net10.0` |
-| `ClrProfiler.DatadogTracing` | Datadog (DogStatsD) and `ILogger` adapters on top of the core library. | `net8.0`, `net9.0` |
+| `ClrProfiler.DatadogTracing` | Datadog (DogStatsD) and `ILogger` adapters on top of the core library. | `net8.0`, `net9.0`, `net10.0` |
 
 ## Getting Started
 
