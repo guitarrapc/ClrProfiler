@@ -227,7 +227,8 @@ public class ProfilerDiagnosticsTest
                     observed.TrySetResult();
                 }
                 return Task.CompletedTask;
-            }, _ => { }),
+            }, _ => { }
+            ),
         });
 
         tracker.Start();

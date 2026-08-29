@@ -1,7 +1,6 @@
 using ClrProfiler;
 using ClrProfiler.DatadogTracing;
 using ClrProfiler.Statistics;
-using ClrProfiler.TimerListeners;
 using Microsoft.Extensions.Logging;
 
 namespace CleProfiler.DatadogTracing.UnitTest;
