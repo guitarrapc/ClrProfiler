@@ -12,12 +12,12 @@ public class EventListenerDataIntegrityTest
     [Test]
     public async Task GCEventListenerPreservesEveryEventAtChannelCapacity()
     {
+        var capacity = GCEventListener.ChannelCapacity;
+
         // The GC channel is intentionally larger than the other listeners' channels: a gen0
         // burst emits start/end, suspend, and heap-stats values per collection while the reader
         // awaits the user callback, and each retained slot is a compact struct.
-        await Assert.That(GCEventListener.ChannelCapacity).IsEqualTo(512);
-
-        var capacity = GCEventListener.ChannelCapacity;
+        await Assert.That(capacity).IsGreaterThan(ChannelCapacity);
         var actual = new List<GCEventStatistics>(capacity);
         using var cts = new CancellationTokenSource(TestTimeout);
         TestableGCEventListener? listener = null;
