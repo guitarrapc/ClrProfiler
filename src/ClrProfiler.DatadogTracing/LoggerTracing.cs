@@ -8,9 +8,17 @@ public static partial class LoggerTracing
     public static void ContentionEventStartEnd(in ContentionEventStatistics statistics, ILogger logger)
     {
         ref readonly var tags = ref MetricTags.GetContention(statistics.Flag);
-        LogLongMetric(logger, MetricNames.Event.ContentionStartEndCount, statistics.Count, tags.Text);
-        LogDoubleMetric(logger, MetricNames.Event.ContentionStartEndDurationNsSum, statistics.DurationNsSum, tags.Text);
-        LogDoubleMetric(logger, MetricNames.Event.ContentionStartEndDurationNsMax, statistics.DurationNsMax, tags.Text);
+        // Mirrors the Datadog projection: each half is emitted only when present.
+        if (statistics.Count > 0)
+        {
+            LogLongMetric(logger, MetricNames.Event.ContentionStartEndCount, statistics.Count, tags.Text);
+            LogDoubleMetric(logger, MetricNames.Event.ContentionStartEndDurationNsSum, statistics.DurationNsSum, tags.Text);
+            LogDoubleMetric(logger, MetricNames.Event.ContentionStartEndDurationNsMax, statistics.DurationNsMax, tags.Text);
+        }
+        if (statistics.StartCount > 0)
+        {
+            LogLongMetric(logger, MetricNames.Event.ContentionStartCount, statistics.StartCount, tags.Text);
+        }
     }
 
     public static void GcEventStartEnd(in GCStartEndStatistics statistics, ILogger logger)
@@ -37,6 +45,13 @@ public static partial class LoggerTracing
         LogULongMetric(logger, MetricNames.Event.GcHeapStatsFinalizationPromotedBytes, statistics.FinalizationPromotedSize, string.Empty);
         LogUIntMetric(logger, MetricNames.Event.GcHeapStatsPinnedObjectCount, statistics.PinnedObjectCount, string.Empty);
         LogUIntMetric(logger, MetricNames.Event.GcHeapStatsGcHandleCount, statistics.GCHandleCount, string.Empty);
+    }
+
+    public static void GcEventGlobalHistory(in GCGlobalHistoryStatistics statistics, ILogger logger)
+    {
+        ref readonly var tags = ref MetricTags.GetGcGlobal(statistics.CondemnedGeneration, statistics.Reason, statistics.Compacting);
+        LogIntMetric(logger, MetricNames.Event.GcGlobalCount, 1, tags.Text);
+        LogUIntMetric(logger, MetricNames.Event.GcGlobalMemoryPressure, statistics.MemoryPressure, string.Empty);
     }
 
     public static void ThreadPoolEventWorker(in ThreadPoolWorkerStatistics statistics, ILogger logger)

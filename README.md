@@ -120,10 +120,13 @@ Metric names are stable and grouped by origin: `clr_diagnostics_event.*` comes f
 | `clr_diagnostics_event.gc.heapstats_finalization_promoted_bytes` | gauge | — | Bytes promoted because of finalization in each collection. |
 | `clr_diagnostics_event.gc.heapstats_pinned_object_count` | gauge | — | Pinned objects observed by each collection. |
 | `clr_diagnostics_event.gc.heapstats_gc_handle_count` | gauge | — | GC handles in use at the end of each collection. |
-| `clr_diagnostics_event.contention.startend_count` | count | `contention_type` | Monitor lock contentions. |
+| `clr_diagnostics_event.gc.global_count` | count | `gc_gen`, `gc_reason`, `gc_compaction` | One increment per collection, from `GCGlobalHeapHistory`. `gc_gen` is the generation the GC actually condemned, and `gc_compaction:1` marks collections that compacted the heap. |
+| `clr_diagnostics_event.gc.global_memory_pressure` | gauge | — | Memory load percentage (0-100) the GC observed for each collection. |
+| `clr_diagnostics_event.contention.startend_count` | count | `contention_type` | Completed Monitor lock contentions. |
 | `clr_diagnostics_event.contention.startend_duration_ns_sum` | count | `contention_type` | Total contention duration in nanoseconds. Divide by `startend_count` for the exact mean. |
 | `clr_diagnostics_event.contention.startend_duration_ns_max` | histogram | `contention_type` | Longest single contention per aggregation window. Read the `.max` series for the worst contention in a flush interval; the `.avg`, `.count`, and percentile series describe window maxima, not individual contentions. |
-| `clr_diagnostics_event.threadpool.available_workerthread_count` | gauge | — | Active worker threads when a worker stops. |
+| `clr_diagnostics_event.contention.start_count` | count | `contention_type` | Contention begins (`ContentionStart`). The cumulative difference `cumsum(start_count) - cumsum(startend_count)` approximates threads still blocked on a lock: long or never-completing contention (a deadlock) shows as starts accumulating without completions, instead of silence. |
+| `clr_diagnostics_event.threadpool.available_workerthread_count` | gauge | — | Active worker threads when a worker starts or stops. |
 | `clr_diagnostics_event.threadpool.adjustment_avg_throughput` | gauge | `thread_adjust_reason` | Average throughput measured by the ThreadPool hill-climbing algorithm. |
 | `clr_diagnostics_event.threadpool.adjustment_new_workerthreads_count` | gauge | `thread_adjust_reason` | New worker thread count after an adjustment. |
 
@@ -133,8 +136,9 @@ Contention metrics use only statsd types that aggregate correctly across many su
 
 Tag values are bounded. Values the library does not recognize (for example from a newer runtime) are reported as `unknown` instead of creating unbounded tag cardinality:
 
-- `gc_gen`: `0|1|2` (`0|1|2|loh|poh` on heap-stats sizes)
+- `gc_gen`: `0|1|2` (`0|1|2|loh|poh` on heap-stats sizes; the condemned generation on `gc.global_count`)
 - `gc_type`: `0|1|2`
+- `gc_compaction`: `0|1`
 - `gc_reason`: `soh|induced|low_memory|empty|loh|oos_soh|oos_loh|incuded_non_forceblock|stress_testing|finalizer_low_memory_induced|user_gc_request`
 - `gc_suspend_reason`: `other|gc|appdomain_shudown|code_pitch|shutdown|debugger|prep_gc`
 - `thread_adjust_reason`: `warmup|initializing|random_move|climbing_move|change_point|stabilizing|starvation|timedout|cooperative_blocking`
@@ -291,19 +295,31 @@ tracker.StartTracker();
 
 This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
 
-Your callbacks run on dedicated reader tasks, never on the threads that emit CLR events, so a slow callback slows delivery to itself but never blocks the application. If a callback throws, the exception is routed to `OnException` and delivery continues.
+Your callbacks run on dedicated reader tasks, never on the threads that emit CLR events, so a slow callback slows delivery to itself but never blocks the application. If a callback throws, the exception is routed to `OnException` and delivery continues. `OnException` (and any custom error callback) is itself isolated: if it throws, the exception is swallowed rather than allowed to terminate a reader loop or unwind into an event-dispatch or timer thread.
 
 Contention events are aggregated before delivery: one `ContentionEventStatistics` can represent many contention events observed in the same delivery window, summarized by contention flag.
 
 | Member | Meaning |
 | --- | --- |
-| `Count` | Number of contention events represented by this value. |
+| `Count` | Number of completed contention events (`ContentionStop`) represented by this value. |
+| `StartCount` | Number of contention begins (`ContentionStart`) observed in this window. A window can contain starts and no completions — that is what a hang looks like. |
 | `DurationNsSum` | Total contention duration in nanoseconds across those events. |
 | `DurationNsMax` | Longest single contention duration in nanoseconds among those events. |
 | `DurationNsMean` | `DurationNsSum / Count`, or 0 when nothing was aggregated. |
 | `Time` | Timestamp of the newest event observed for the flag. The duration fields summarize the whole window, so they are not tied to this timestamp. |
 
 For accepted samples, the values and the totals across deliveries are exact. Samples that could not be accepted (queue full under extreme load) are counted into `DroppedEventCount` and surfaced by the diagnostics metric; see [Observe what the profiler itself dropped](#observe-what-the-profiler-itself-dropped).
+
+## Limitations
+
+Deliberate design boundaries worth knowing when interpreting the metrics:
+
+- **Startup blind spot.** Events before `StartTracker()` (startup GCs, JIT warmup) are not captured as events; the cumulative timer counters (`gc_count`, `total_allocation_bytes`, `total_pause_time_ms`) still include their totals. The first timer sample arrives after `TimerOption.dueTime` (one minute by default).
+- **Runtime-side event loss is invisible.** `dropped_event_count` covers everything ClrProfiler discarded, but the runtime's own EventPipe buffers can drop events before they reach any `EventListener`, without notification. The loss-free timer counters exist precisely to bound this: cumulative counters stay exact regardless.
+- **No allocation breakdown.** `GCAllocationTick` requires Verbose-level GC events and is intentionally not enabled; its per-allocation cost is out of proportion for always-on monitoring.
+- **No exception, JIT, or loader events.** The `Exceptions`, `Jit`, and `Loader` keywords are not subscribed. Use `AdditionalProfilerFactories` with your own `EventSource` listener if you need them.
+- **Hill-climbing adjustments are excluded.** ThreadPool adjustment metrics skip reason `climbing_move` (the hill-climbing algorithm's routine exploration, which would dominate the series). Worker-count changes from those moves are still visible through the worker start/stop events.
+- **Contention start/stop difference can drift.** `start_count` and `startend_count` are independent event streams; if events are dropped under extreme load, their cumulative difference drifts. Treat it as a hang indicator, not an exact blocked-thread count.
 
 ## Sandbox
 

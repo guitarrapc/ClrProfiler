@@ -12,9 +12,18 @@ public static class DatadogTracing
         // Counters and histograms are the only types that survive interval aggregation here: the
         // listener emits an aggregation window whenever the reader drains, which is far more often
         // than statsd flushes. A gauge would keep the last window and discard every other one.
-        DogStatsd.Counter(MetricNames.Event.ContentionStartEndCount, statistics.Count, tags: tags.Values);
-        DogStatsd.Counter(MetricNames.Event.ContentionStartEndDurationNsSum, statistics.DurationNsSum, tags: tags.Values);
-        DogStatsd.Histogram(MetricNames.Event.ContentionStartEndDurationNsMax, statistics.DurationNsMax, tags: tags.Values);
+        // Each half is emitted only when present: a start-only window (threads still blocked)
+        // must not push zeros into the completion series, and vice versa.
+        if (statistics.Count > 0)
+        {
+            DogStatsd.Counter(MetricNames.Event.ContentionStartEndCount, statistics.Count, tags: tags.Values);
+            DogStatsd.Counter(MetricNames.Event.ContentionStartEndDurationNsSum, statistics.DurationNsSum, tags: tags.Values);
+            DogStatsd.Histogram(MetricNames.Event.ContentionStartEndDurationNsMax, statistics.DurationNsMax, tags: tags.Values);
+        }
+        if (statistics.StartCount > 0)
+        {
+            DogStatsd.Counter(MetricNames.Event.ContentionStartCount, statistics.StartCount, tags: tags.Values);
+        }
     }
 
     // GCEvent
@@ -42,6 +51,13 @@ public static class DatadogTracing
         DogStatsd.Gauge(MetricNames.Event.GcHeapStatsFinalizationPromotedBytes, statistics.FinalizationPromotedSize);
         DogStatsd.Gauge(MetricNames.Event.GcHeapStatsPinnedObjectCount, statistics.PinnedObjectCount);
         DogStatsd.Gauge(MetricNames.Event.GcHeapStatsGcHandleCount, statistics.GCHandleCount);
+    }
+
+    public static void GcEventGlobalHistory(in GCGlobalHistoryStatistics statistics)
+    {
+        ref readonly var tags = ref MetricTags.GetGcGlobal(statistics.CondemnedGeneration, statistics.Reason, statistics.Compacting);
+        DogStatsd.Increment(MetricNames.Event.GcGlobalCount, tags: tags.Values);
+        DogStatsd.Gauge(MetricNames.Event.GcGlobalMemoryPressure, statistics.MemoryPressure);
     }
 
     // ThreadPoolEvent

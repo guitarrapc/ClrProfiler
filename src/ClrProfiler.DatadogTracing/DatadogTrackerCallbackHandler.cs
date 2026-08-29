@@ -25,6 +25,10 @@ public class DatadogTrackerCallbackHandler(ILogger logger) : IClrTrackerCallback
         {
             DatadogTracing.GcEventHeapStats(statistics.GCHeapStatistics);
         }
+        else if (statistics.Type == GCEventType.GCGlobalHistory)
+        {
+            DatadogTracing.GcEventGlobalHistory(statistics.GCGlobalHistoryStatistics);
+        }
         return Task.CompletedTask;
     }
 
