@@ -19,6 +19,7 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
     private readonly TimeSpan _intervalPeriod;
 
     private readonly Func<int>? _getLastGCPercentTimeInGC;
+    private int _timeInGcUnavailableReported;
 
     /// <summary>
     /// Gets the cumulative number of samples evicted from the bounded delivery channel.
@@ -33,16 +34,28 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
     /// <param name="dueTime">The amount of time delay before timer starts.</param>
     /// <param name="intervalPeriod">The time inteval between the invocation of timer.</param>
     public GCInfoTimerListener(Func<GCInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, TimeSpan dueTime, TimeSpan intervalPeriod)
+        : this(onEventEmit, onEventError, dueTime, intervalPeriod, ResolveGetLastGCPercentTimeInGC())
+    {
+    }
+
+    internal GCInfoTimerListener(Func<GCInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, TimeSpan dueTime, TimeSpan intervalPeriod, Func<int>? getLastGCPercentTimeInGC)
     {
         _onEventError = onEventError;
         _dueTime = dueTime;
         _intervalPeriod = intervalPeriod;
         _dispatcher = new BoundedChannelDispatcher<GCInfoStatistics>(50, singleWriter: true, onEventEmit, onEventError);
+        _getLastGCPercentTimeInGC = getLastGCPercentTimeInGC;
+    }
 
-        // GetLastGCPercentTimeInGC has no public equivalent with the same last-GC semantics
-        // (GCMemoryInfo.PauseTimePercentage is cumulative), so it stays on reflection.
+    /// <summary>
+    /// GetLastGCPercentTimeInGC has no public equivalent with the same last-GC semantics
+    /// (GCMemoryInfo.PauseTimePercentage is cumulative), so it stays on reflection. Its absence is
+    /// reported through the error callback on the first sample instead of silently sending 0 forever.
+    /// </summary>
+    private static Func<int>? ResolveGetLastGCPercentTimeInGC()
+    {
         var methodGetLastGCPercentTimeInGC = typeof(GC).GetMethod("GetLastGCPercentTimeInGC", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy);
-        _getLastGCPercentTimeInGC = (Func<int>?)methodGetLastGCPercentTimeInGC?.CreateDelegate(typeof(Func<int>));
+        return (Func<int>?)methodGetLastGCPercentTimeInGC?.CreateDelegate(typeof(Func<int>));
     }
 
     protected override void OnEventWritten()
@@ -105,7 +118,21 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
             var gen1Size = GetGenerationSizeAfterBytes(generationInfo, 1);
             var gen2Size = GetGenerationSizeAfterBytes(generationInfo, 2);
             var lohSize = GetGenerationSizeAfterBytes(generationInfo, 3);
-            var timeInGc = _getLastGCPercentTimeInGC?.Invoke() ?? 0;
+            int timeInGc;
+            if (_getLastGCPercentTimeInGC is not null)
+            {
+                timeInGc = _getLastGCPercentTimeInGC();
+            }
+            else
+            {
+                // Report the unavailable internal API once instead of silently sending 0 forever.
+                timeInGc = 0;
+                if (Interlocked.Exchange(ref _timeInGcUnavailableReported, 1) == 0)
+                {
+                    ProfilerCallbacks.ReportError(_onEventError, new NotSupportedException(
+                        "GC.GetLastGCPercentTimeInGC is not available on this runtime. The time-in-GC percent sample reports 0."));
+                }
+            }
             var totalPauseTimeMillisec = GC.GetTotalPauseDuration().TotalMilliseconds;
             var stat = new GCInfoStatistics(date, gcmode, compactionMode, latencyMode, heapSize, totalAllocationBytes, gen0Count, gen1Count, gen2Count, timeInGc, gen0Size, gen1Size, gen2Size, lohSize, totalPauseTimeMillisec);
 
@@ -113,7 +140,8 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
         }
         catch (Exception ex)
         {
-            _onEventError?.Invoke(ex);
+            // A throwing error callback must not unwind into the timer thread.
+            ProfilerCallbacks.ReportError(_onEventError, ex);
         }
     }
 

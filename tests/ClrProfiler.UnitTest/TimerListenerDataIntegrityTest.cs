@@ -110,6 +110,36 @@ public class TimerListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task GCInfoTimerListenerReportsMissingTimeInGcReflectionOnceAndKeepsSampling()
+    {
+        var actual = new List<GCInfoStatistics>(2);
+        var errors = new List<Exception>(1);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCInfoTimerListenerWithoutTimeInGc(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == 2)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        }, errors.Add);
+
+        listener.EventCreatedHandler();
+        listener.EventCreatedHandler();
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        // The unavailable internal API must be reported once, not per sample and not silently,
+        // and sampling must continue with time-in-GC pinned to 0.
+        await Assert.That(actual).Count().IsEqualTo(2);
+        await Assert.That(actual.All(value => value.TimeInGc == 0)).IsTrue();
+        var error = await Assert.That(errors).HasSingleItem();
+        await Assert.That(error.Message).Contains("GetLastGCPercentTimeInGC");
+    }
+
+    [Test]
     public async Task ProcessInfoTimerListenerPreservesEverySampleAtChannelCapacity()
     {
         var actual = new List<ProcessInfoStatistics>(ChannelCapacity);
@@ -247,6 +277,12 @@ public class TimerListenerDataIntegrityTest
     {
         public void EnableReading() => Enabled = true;
         public void DisableReading() => Enabled = false;
+    }
+
+    private sealed class TestableGCInfoTimerListenerWithoutTimeInGc(Func<GCInfoStatistics, Task> onEventEmit, Action<Exception> onEventError)
+        : GCInfoTimerListener(onEventEmit, onEventError, UnusedTimerPeriod, UnusedTimerPeriod, getLastGCPercentTimeInGC: null)
+    {
+        public void EnableReading() => Enabled = true;
     }
 
     private sealed class TestableProcessInfoTimerListener(Func<ProcessInfoStatistics, Task> onEventEmit)
