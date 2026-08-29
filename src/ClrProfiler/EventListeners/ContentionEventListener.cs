@@ -198,7 +198,7 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
         }
         catch (Exception ex)
         {
-            // A throwing error callback must not terminate the reader loop.
+            // A throwing emit callback must not terminate the reader loop.
             ProfilerCallbacks.ReportError(_onEventError, ex);
         }
     }
