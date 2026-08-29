@@ -1079,6 +1079,10 @@ public class EventListenerDataIntegrityTest
         await Assert.That(baseline != new ContentionEventStatistics(1, 0, 4, 90D, 40D)).IsTrue();
         await Assert.That(baseline != new ContentionEventStatistics(1, 0, 3, 91D, 40D)).IsTrue();
         await Assert.That(baseline != new ContentionEventStatistics(1, 0, 3, 90D, 41D)).IsTrue();
+        // The five-argument constructor represents a stop-only window: StartCount is zero.
+        await Assert.That(baseline.StartCount).IsEqualTo(0L);
+        await Assert.That(baseline == new ContentionEventStatistics(1, 0, 3, 0, 90D, 40D)).IsTrue();
+        await Assert.That(baseline != new ContentionEventStatistics(1, 0, 3, 2, 90D, 40D)).IsTrue();
     }
 
     [Test]
@@ -1192,6 +1196,37 @@ public class EventListenerDataIntegrityTest
             await Assert.That(worker.Type).IsEqualTo(ThreadPoolStatisticType.ThreadPoolWorkerStartStop);
             await Assert.That(worker.ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo((uint)(20 + i));
         }
+    }
+
+    [Test]
+    public async Task ThreadPoolEventListenerTracksWorkerThreadStartAndStop()
+    {
+        var actual = new List<ThreadPoolEventStatistics>(2);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableThreadPoolEventListener(value =>
+        {
+            actual.Add(value);
+            if (actual.Count == 2)
+            {
+                cts.Cancel();
+            }
+            return Task.CompletedTask;
+        });
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Start carries the same ActiveWorkerThreadCount payload as Stop. Without it, the worker
+        // count timeline has no increase points between timer samples.
+        listener.ProcessEvent("ThreadPoolWorkerThreadStart", origin, [11U, 0U, (ushort)0]);
+        listener.ProcessEvent("ThreadPoolWorkerThreadStop_V1", origin.AddTicks(1), [10U, 0U, (ushort)0]);
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        await Assert.That(actual).Count().IsEqualTo(2);
+        await Assert.That(actual[0].Type).IsEqualTo(ThreadPoolStatisticType.ThreadPoolWorkerStartStop);
+        await Assert.That(actual[0].ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo(11U);
+        await Assert.That(actual[0].ThreadPoolWorker.Time).IsEqualTo(origin.Ticks);
+        await Assert.That(actual[1].ThreadPoolWorker.ActiveWrokerThreads).IsEqualTo(10U);
     }
 
     [Test]

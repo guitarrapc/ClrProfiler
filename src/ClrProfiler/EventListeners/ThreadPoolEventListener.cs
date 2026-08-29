@@ -54,11 +54,13 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
                 // write to channel
                 _dispatcher.TryWrite(stat);
             }
-            else if (eventName?.StartsWith("ThreadPoolWorkerThreadStop", StringComparison.OrdinalIgnoreCase) ?? false)
+            else if ((eventName?.StartsWith("ThreadPoolWorkerThreadStop", StringComparison.OrdinalIgnoreCase) ?? false)
+                || (eventName?.StartsWith("ThreadPoolWorkerThreadStart", StringComparison.OrdinalIgnoreCase) ?? false))
             {
+                // Start and Stop carry the same ActiveWorkerThreadCount payload; tracking both
+                // gives the worker count timeline its increase points, not only its decreases.
                 long time = timeStamp.Ticks;
                 var activeWorkerThreadCount = ReadRequiredUInt32(payload, 0);
-                // always 0
                 var stat = new ThreadPoolEventStatistics(ThreadPoolStatisticType.ThreadPoolWorkerStartStop, new ThreadPoolWorkerStatistics(time, activeWorkerThreadCount), new());
 
                 // write to channel
@@ -67,7 +69,7 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
         }
         catch (Exception ex)
         {
-            _onEventError?.Invoke(ex);
+            ProfilerCallbacks.ReportError(_onEventError, ex);
         }
     }
 
