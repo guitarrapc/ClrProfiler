@@ -62,6 +62,29 @@ public class MetricTagProjectionTest
     }
 
     [Test]
+    public async Task GcEventHeapStats_ProjectsSizesPerGenerationAndCounts()
+    {
+        var logger = new CapturingLogger();
+
+        LoggerTracing.GcEventHeapStats(new GCHeapStatistics(123, 100, 200, 300, 400, 500, 55, 7, 900), logger);
+
+        await Assert.That(logger.Messages).Count().IsEqualTo(8);
+        await Assert.That(logger.Messages[0]).Contains("heapstats_size_bytes: 100,");
+        await Assert.That(logger.Messages[0]).Contains("tags: gc_gen:0");
+        await Assert.That(logger.Messages[1]).Contains("heapstats_size_bytes: 200,");
+        await Assert.That(logger.Messages[1]).Contains("tags: gc_gen:1");
+        await Assert.That(logger.Messages[2]).Contains("heapstats_size_bytes: 300,");
+        await Assert.That(logger.Messages[2]).Contains("tags: gc_gen:2");
+        await Assert.That(logger.Messages[3]).Contains("heapstats_size_bytes: 400,");
+        await Assert.That(logger.Messages[3]).Contains("tags: gc_gen:loh");
+        await Assert.That(logger.Messages[4]).Contains("heapstats_size_bytes: 500,");
+        await Assert.That(logger.Messages[4]).Contains("tags: gc_gen:poh");
+        await Assert.That(logger.Messages[5]).Contains("heapstats_finalization_promoted_bytes: 55,");
+        await Assert.That(logger.Messages[6]).Contains("heapstats_pinned_object_count: 7,");
+        await Assert.That(logger.Messages[7]).Contains("heapstats_gc_handle_count: 900,");
+    }
+
+    [Test]
     [Arguments(0u, "other")]
     [Arguments(1u, "gc")]
     [Arguments(2u, "appdomain_shudown")]
@@ -128,7 +151,8 @@ public class MetricTagProjectionTest
             7,
             8,
             9,
-            10), logger);
+            10,
+            11.5), logger);
 
         await Assert.That(logger.Messages).Contains(message => message.Contains("tags: contention_type:unknown"));
         await Assert.That(logger.Messages).Contains(message => message.Contains("tags: gc_gen:unknown,gc_type:unknown,gc_reason:unknown"));
@@ -194,13 +218,17 @@ public class MetricTagProjectionTest
             7,
             8,
             9,
-            10);
+            10,
+            123.5);
 
         LoggerTracing.GcInfoTimerGauge(statistics, logger);
 
+        await Assert.That(logger.Messages).Count().IsEqualTo(11);
         await Assert.That(logger.Messages[0]).Contains("tags: gc_mode:Server,latency_mode:SustainedLowLatency,compaction_mode:CompactOnce");
         await Assert.That(logger.Messages[2]).Contains("tags: gc_gen:0,gc_mode:Server,latency_mode:SustainedLowLatency,compaction_mode:CompactOnce");
         await Assert.That(logger.Messages[8]).Contains("tags: gc_gen:loh,gc_mode:Server,latency_mode:SustainedLowLatency,compaction_mode:CompactOnce");
+        await Assert.That(logger.Messages[10]).Contains("total_pause_time_ms: 123.5,");
+        await Assert.That(logger.Messages[10]).Contains("tags: gc_mode:Server,latency_mode:SustainedLowLatency,compaction_mode:CompactOnce");
     }
 
     private sealed class CapturingLogger : ILogger

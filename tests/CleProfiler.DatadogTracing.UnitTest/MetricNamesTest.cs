@@ -17,6 +17,10 @@ public class MetricNamesTest
             "clr_diagnostics_event.gc.startend_duration_ms",
             "clr_diagnostics_event.gc.suspend_object_count",
             "clr_diagnostics_event.gc.suspend_duration_ms",
+            "clr_diagnostics_event.gc.heapstats_size_bytes",
+            "clr_diagnostics_event.gc.heapstats_finalization_promoted_bytes",
+            "clr_diagnostics_event.gc.heapstats_pinned_object_count",
+            "clr_diagnostics_event.gc.heapstats_gc_handle_count",
             "clr_diagnostics_event.threadpool.available_workerthread_count",
             "clr_diagnostics_event.threadpool.adjustment_avg_throughput",
             "clr_diagnostics_event.threadpool.adjustment_new_workerthreads_count",
@@ -40,6 +44,7 @@ public class MetricNamesTest
             "clr_diagnostics_timer.gc.gc_count",
             "clr_diagnostics_timer.gc.gc_size",
             "clr_diagnostics_timer.gc.time_in_gc_percent",
+            "clr_diagnostics_timer.gc.total_pause_time_ms",
             "clr_diagnostics_timer.process.cpu",
             "clr_diagnostics_timer.process.private_bytes",
             "clr_diagnostics_timer.process.working_sets",
@@ -53,6 +58,7 @@ public class MetricNamesTest
             "clr_diagnostics_timer.thread.queue_length",
             "clr_diagnostics_timer.thread.lock_contention_count",
             "clr_diagnostics_timer.thread.completed_items_count",
+            "clr_diagnostics_timer.profiler.dropped_event_count",
         ];
 
         await Assert.That(actual.Length).IsEqualTo(expected.Length);

@@ -14,9 +14,10 @@ public class ThreadPoolEventListener : ProfileEventListenerBase, IChannelReader
     private readonly Action<Exception> _onEventError;
 
     /// <summary>
-    /// Gets the cumulative number of events evicted from the bounded delivery channel.
+    /// Gets the cumulative number of events evicted from the bounded delivery channel, plus any
+    /// event delivered before a handler was registered.
     /// </summary>
-    public long DroppedEventCount => _dispatcher.DroppedEventCount;
+    public long DroppedEventCount => _dispatcher.DroppedEventCount + UnobservedEventCount;
 
     public ThreadPoolEventListener(Func<ThreadPoolEventStatistics, Task> onEventEmit, Action<Exception> onEventError) : base("Microsoft-Windows-DotNETRuntime", EventLevel.Informational, ClrRuntimeEventKeywords.Threading)
     {

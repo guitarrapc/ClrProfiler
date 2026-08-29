@@ -41,6 +41,17 @@ public interface IClrTrackerCallbackHandler
     /// <returns></returns>
     Task OnThreadInfoTimerAsync(ThreadInfoStatistics statistics);
     /// <summary>
+    /// ProfilerDiagnostics. One sample per profiler per timer tick, reporting how much data that
+    /// profiler discarded.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to ignoring the sample so a handler written before this member existed stays source
+    /// and binary compatible. Override it to make profiler loss observable.
+    /// </remarks>
+    /// <param name="statistics"></param>
+    /// <returns></returns>
+    Task OnProfilerDiagnosticsTimerAsync(ProfilerDiagnosticsStatistics statistics) => Task.CompletedTask;
+    /// <summary>
     /// On Exception
     /// </summary>
     /// <param name="exception"></param>

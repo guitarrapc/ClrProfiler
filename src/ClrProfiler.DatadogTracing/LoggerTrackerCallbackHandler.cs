@@ -21,6 +21,10 @@ public class LoggerTrackerCallbackHandler(ILogger logger) : IClrTrackerCallbackH
         {
             LoggerTracing.GcEventSuspend(statistics.GCSuspendStatistics, logger);
         }
+        else if (statistics.Type == GCEventType.GCHeapStats)
+        {
+            LoggerTracing.GcEventHeapStats(statistics.GCHeapStatistics, logger);
+        }
         return Task.CompletedTask;
     }
 
@@ -33,6 +37,12 @@ public class LoggerTrackerCallbackHandler(ILogger logger) : IClrTrackerCallbackH
     public Task OnProcessInfoTimerAsync(ProcessInfoStatistics statistics)
     {
         LoggerTracing.ProcessInfoTimerGauge(statistics, logger);
+        return Task.CompletedTask;
+    }
+
+    public Task OnProfilerDiagnosticsTimerAsync(ProfilerDiagnosticsStatistics statistics)
+    {
+        LoggerTracing.ProfilerDiagnosticsTimerGauge(statistics, logger);
         return Task.CompletedTask;
     }
 

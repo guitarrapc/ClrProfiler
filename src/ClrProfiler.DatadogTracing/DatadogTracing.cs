@@ -32,6 +32,18 @@ public static class DatadogTracing
         DogStatsd.Gauge(MetricNames.Event.GcSuspendDurationMs, statistics.DurationMillisec, tags: tags.Values);
     }
 
+    public static void GcEventHeapStats(in GCHeapStatistics statistics)
+    {
+        DogStatsd.Gauge(MetricNames.Event.GcHeapStatsSizeBytes, statistics.Gen0Size, tags: MetricTags.GetGcHeapStatsGeneration(0).Values);
+        DogStatsd.Gauge(MetricNames.Event.GcHeapStatsSizeBytes, statistics.Gen1Size, tags: MetricTags.GetGcHeapStatsGeneration(1).Values);
+        DogStatsd.Gauge(MetricNames.Event.GcHeapStatsSizeBytes, statistics.Gen2Size, tags: MetricTags.GetGcHeapStatsGeneration(2).Values);
+        DogStatsd.Gauge(MetricNames.Event.GcHeapStatsSizeBytes, statistics.LohSize, tags: MetricTags.GetGcHeapStatsGeneration(3).Values);
+        DogStatsd.Gauge(MetricNames.Event.GcHeapStatsSizeBytes, statistics.PohSize, tags: MetricTags.GetGcHeapStatsGeneration(4).Values);
+        DogStatsd.Gauge(MetricNames.Event.GcHeapStatsFinalizationPromotedBytes, statistics.FinalizationPromotedSize);
+        DogStatsd.Gauge(MetricNames.Event.GcHeapStatsPinnedObjectCount, statistics.PinnedObjectCount);
+        DogStatsd.Gauge(MetricNames.Event.GcHeapStatsGcHandleCount, statistics.GCHandleCount);
+    }
+
     // ThreadPoolEvent
     public static void ThreadPoolEventWorker(in ThreadPoolWorkerStatistics statistics)
     {
@@ -63,6 +75,7 @@ public static class DatadogTracing
         DogStatsd.Gauge(MetricNames.Timer.GcSize, statistics.Gen2Size, tags: tags.Gen2.Values);
         DogStatsd.Gauge(MetricNames.Timer.GcSize, statistics.LohSize, tags: tags.Loh.Values);
         DogStatsd.Gauge(MetricNames.Timer.GcTimeInGcPercent, statistics.TimeInGc, tags: tags.Base.Values);
+        DogStatsd.Gauge(MetricNames.Timer.GcTotalPauseTimeMs, statistics.TotalPauseTimeMillisec, tags: tags.Base.Values);
     }
 
     // Process
@@ -71,6 +84,15 @@ public static class DatadogTracing
         DogStatsd.Gauge(MetricNames.Timer.ProcessCpu, statistics.Cpu);
         DogStatsd.Gauge(MetricNames.Timer.ProcessPrivateBytes, statistics.PrivateBytes);
         DogStatsd.Gauge(MetricNames.Timer.ProcessWorkingSets, statistics.WorkingSet);
+    }
+
+    // Profiler self-diagnostics
+    public static void ProfilerDiagnosticsTimerGauge(in ProfilerDiagnosticsStatistics statistics)
+    {
+        ref readonly var tags = ref MetricTags.GetProfiler(statistics.ProfilerName);
+        // A gauge, not a counter: the value is cumulative for the profiler's lifetime, so it stays
+        // correct even when the delivery channel evicts intermediate samples. Consumers take a diff.
+        DogStatsd.Gauge(MetricNames.Timer.ProfilerDroppedEventCount, statistics.DroppedEventCount, tags: tags.Values);
     }
 
     // Thread

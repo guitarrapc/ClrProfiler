@@ -52,6 +52,11 @@ public class ProfilerTrackerOptions
     /// Callback invoke when Timer ThreadInfo Event emitted and error.
     /// </summary>
     public (Func<ThreadInfoStatistics, Task> OnSuccess, Action<Exception> OnError) ThreadInfoTimerCallback { get; set; } = (stats => Task.CompletedTask, _ => { });
+    /// <summary>
+    /// Callback invoke when Timer ProfilerDiagnostics sample emitted and error. One sample is
+    /// emitted per profiler per tick.
+    /// </summary>
+    public (Func<ProfilerDiagnosticsStatistics, Task> OnSuccess, Action<Exception> OnError) ProfilerDiagnosticsTimerCallback { get; set; } = (stats => Task.CompletedTask, _ => { });
 }
 
 public class ProfilerTracker : IDisposable
@@ -125,6 +130,14 @@ public class ProfilerTracker : IDisposable
                     ?? throw new ArgumentException($"Additional profiler factory at index {i} cannot be null.", nameof(ProfilerTrackerOptions.AdditionalProfilerFactories));
                 profilerStats[profilerIndex] = factory()
                     ?? throw new InvalidOperationException($"Additional profiler factory at index {i} returned null.");
+                profilerIndex++;
+            }
+            if ((enabledFeatures & ProfilerFeature.ProfilerDiagnosticsTimer) != 0)
+            {
+                // Created last so it observes every other profiler, including the additional ones.
+                // It receives the backing array rather than a copy, so its own slot - still empty at
+                // this point - is populated by the assignment below and read on the first tick.
+                profilerStats[profilerIndex] = new ProfilerDiagnosticsTimerProfiler(this.options.ProfilerDiagnosticsTimerCallback.OnSuccess, this.options.ProfilerDiagnosticsTimerCallback.OnError, this.options.TimerOption, profilerStats);
                 profilerIndex++;
             }
             if (profilerIndex != profilerStats.Length)

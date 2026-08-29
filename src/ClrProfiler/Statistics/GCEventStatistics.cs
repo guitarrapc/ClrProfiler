@@ -6,16 +6,31 @@ public enum GCEventType
 {
     GCStartEnd,
     GCSuspend,
+    GCHeapStats,
 }
 
 /// <summary>
 /// Data structure represent GC statistics
 /// </summary>
-public readonly struct GCEventStatistics(GCEventType type, GCStartEndStatistics gCStartEndStatistics, GCSuspendStatistics gCSuspendStatistics) : IEquatable<GCEventStatistics>
+public readonly struct GCEventStatistics : IEquatable<GCEventStatistics>
 {
-    public readonly GCEventType Type = type;
-    public readonly GCStartEndStatistics GCStartEndStatistics = gCStartEndStatistics;
-    public readonly GCSuspendStatistics GCSuspendStatistics = gCSuspendStatistics;
+    public readonly GCEventType Type;
+    public readonly GCStartEndStatistics GCStartEndStatistics;
+    public readonly GCSuspendStatistics GCSuspendStatistics;
+    public readonly GCHeapStatistics GCHeapStatistics;
+
+    public GCEventStatistics(GCEventType type, GCStartEndStatistics gCStartEndStatistics, GCSuspendStatistics gCSuspendStatistics)
+        : this(type, gCStartEndStatistics, gCSuspendStatistics, default)
+    {
+    }
+
+    public GCEventStatistics(GCEventType type, GCStartEndStatistics gCStartEndStatistics, GCSuspendStatistics gCSuspendStatistics, GCHeapStatistics gCHeapStatistics)
+    {
+        Type = type;
+        GCStartEndStatistics = gCStartEndStatistics;
+        GCSuspendStatistics = gCSuspendStatistics;
+        GCHeapStatistics = gCHeapStatistics;
+    }
 
     public override bool Equals(object? obj)
     {
@@ -27,12 +42,13 @@ public readonly struct GCEventStatistics(GCEventType type, GCStartEndStatistics 
     {
         return Type == other.Type
             && GCStartEndStatistics.Equals(other.GCStartEndStatistics)
-            && GCSuspendStatistics.Equals(other.GCSuspendStatistics);
+            && GCSuspendStatistics.Equals(other.GCSuspendStatistics)
+            && GCHeapStatistics.Equals(other.GCHeapStatistics);
     }
 
     public override int GetHashCode()
     {
-        return HashCode.Combine(Type, GCStartEndStatistics, GCSuspendStatistics);
+        return HashCode.Combine(Type, GCStartEndStatistics, GCSuspendStatistics, GCHeapStatistics);
     }
 
     public static bool operator ==(GCEventStatistics left, GCEventStatistics right)
@@ -126,6 +142,84 @@ public readonly struct GCStartEndStatistics(uint index, uint type, uint generati
     }
 
     public static bool operator !=(GCStartEndStatistics left, GCStartEndStatistics right)
+    {
+        return !(left == right);
+    }
+}
+
+/// <summary>
+/// Heap state at the end of a garbage collection, from the GCHeapStats_V1/V2 event. Sizes are the
+/// per-generation sizes after that collection; V1 payloads have no POH, which reports as zero.
+/// </summary>
+public readonly struct GCHeapStatistics(long time, ulong gen0Size, ulong gen1Size, ulong gen2Size, ulong lohSize, ulong pohSize, ulong finalizationPromotedSize, uint pinnedObjectCount, uint gcHandleCount) : IEquatable<GCHeapStatistics>
+{
+    public readonly long Time = time;
+    /// <summary>
+    /// bytes
+    /// </summary>
+    public readonly ulong Gen0Size = gen0Size;
+    /// <summary>
+    /// bytes
+    /// </summary>
+    public readonly ulong Gen1Size = gen1Size;
+    /// <summary>
+    /// bytes
+    /// </summary>
+    public readonly ulong Gen2Size = gen2Size;
+    /// <summary>
+    /// bytes
+    /// </summary>
+    public readonly ulong LohSize = lohSize;
+    /// <summary>
+    /// bytes. Zero when the runtime emits GCHeapStats_V1, which predates the pinned object heap.
+    /// </summary>
+    public readonly ulong PohSize = pohSize;
+    /// <summary>
+    /// bytes promoted because of finalization in this collection.
+    /// </summary>
+    public readonly ulong FinalizationPromotedSize = finalizationPromotedSize;
+    public readonly uint PinnedObjectCount = pinnedObjectCount;
+    public readonly uint GCHandleCount = gcHandleCount;
+
+    public override bool Equals(object? obj)
+    {
+        return obj is GCHeapStatistics other && Equals(other);
+    }
+
+    public bool Equals([AllowNull] GCHeapStatistics other)
+    {
+        return Time == other.Time &&
+            Gen0Size == other.Gen0Size &&
+            Gen1Size == other.Gen1Size &&
+            Gen2Size == other.Gen2Size &&
+            LohSize == other.LohSize &&
+            PohSize == other.PohSize &&
+            FinalizationPromotedSize == other.FinalizationPromotedSize &&
+            PinnedObjectCount == other.PinnedObjectCount &&
+            GCHandleCount == other.GCHandleCount;
+    }
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Time);
+        hash.Add(Gen0Size);
+        hash.Add(Gen1Size);
+        hash.Add(Gen2Size);
+        hash.Add(LohSize);
+        hash.Add(PohSize);
+        hash.Add(FinalizationPromotedSize);
+        hash.Add(PinnedObjectCount);
+        hash.Add(GCHandleCount);
+        return hash.ToHashCode();
+    }
+
+    public static bool operator ==(GCHeapStatistics left, GCHeapStatistics right)
+    {
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(GCHeapStatistics left, GCHeapStatistics right)
     {
         return !(left == right);
     }

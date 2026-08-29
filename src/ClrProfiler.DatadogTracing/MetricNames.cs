@@ -14,7 +14,7 @@ internal static class MetricNames
     /// Tag values:
     /// <list type="bullet">
     /// <item><c>contention_type:0|1|unknown</c></item>
-    /// <item><c>gc_gen:0|1|2|unknown</c></item>
+    /// <item><c>gc_gen:0|1|2|unknown</c> (heap-stats sizes use <c>gc_gen:0|1|2|loh|poh</c>)</item>
     /// <item><c>gc_type:0|1|2|unknown</c></item>
     /// <item><c>gc_reason:soh|induced|low_memory|empty|loh|oos_soh|oos_loh|incuded_non_forceblock|stress_testing|finalizer_low_memory_induced|user_gc_request|unknown</c></item>
     /// <item><c>gc_suspend_reason:other|gc|appdomain_shudown|code_pitch|shutdown|debugger|prep_gc|unknown</c></item>
@@ -50,6 +50,22 @@ internal static class MetricNames
         /// <summary>Gauge in milliseconds. Tags: <c>gc_suspend_reason</c>.</summary>
         internal const string GcSuspendDurationMs = "clr_diagnostics_event.gc.suspend_duration_ms";
 
+        /// <summary>
+        /// Gauge in bytes carrying the per-generation size after each collection, from
+        /// GCHeapStats_V1/V2. Tags: <c>gc_gen:0|1|2|loh|poh</c>. POH reports zero on runtimes
+        /// that emit the V1 payload.
+        /// </summary>
+        internal const string GcHeapStatsSizeBytes = "clr_diagnostics_event.gc.heapstats_size_bytes";
+
+        /// <summary>Gauge in bytes promoted because of finalization in each collection. No metric-specific tags.</summary>
+        internal const string GcHeapStatsFinalizationPromotedBytes = "clr_diagnostics_event.gc.heapstats_finalization_promoted_bytes";
+
+        /// <summary>Gauge counting pinned objects observed by each collection. No metric-specific tags.</summary>
+        internal const string GcHeapStatsPinnedObjectCount = "clr_diagnostics_event.gc.heapstats_pinned_object_count";
+
+        /// <summary>Gauge counting GC handles in use at the end of each collection. No metric-specific tags.</summary>
+        internal const string GcHeapStatsGcHandleCount = "clr_diagnostics_event.gc.heapstats_gc_handle_count";
+
         /// <summary>Gauge without metric-specific tags.</summary>
         internal const string ThreadPoolAvailableWorkerThreadCount = "clr_diagnostics_event.threadpool.available_workerthread_count";
 
@@ -68,6 +84,10 @@ internal static class MetricNames
             GcStartEndDurationMs,
             GcSuspendObjectCount,
             GcSuspendDurationMs,
+            GcHeapStatsSizeBytes,
+            GcHeapStatsFinalizationPromotedBytes,
+            GcHeapStatsPinnedObjectCount,
+            GcHeapStatsGcHandleCount,
             ThreadPoolAvailableWorkerThreadCount,
             ThreadPoolAdjustmentAverageThroughput,
             ThreadPoolAdjustmentNewWorkerThreadsCount,
@@ -87,6 +107,7 @@ internal static class MetricNames
     /// <item><c>compaction_mode:Default|CompactOnce|unknown</c></item>
     /// </list>
     /// Process and thread timer metrics have no metric-specific tags.
+    /// The profiler diagnostics metric is tagged <c>profiler:&lt;name&gt;|unknown</c>.
     /// </remarks>
     internal static class Timer
     {
@@ -104,6 +125,15 @@ internal static class MetricNames
 
         /// <summary>Gauge as a percentage. Tags: <c>gc_mode</c>, <c>latency_mode</c>, and <c>compaction_mode</c>.</summary>
         internal const string GcTimeInGcPercent = "clr_diagnostics_timer.gc.time_in_gc_percent";
+
+        /// <summary>
+        /// Gauge in milliseconds carrying the cumulative GC pause time since process start, from
+        /// <c>GC.GetTotalPauseDuration()</c>. The runtime counter cannot drop events, so a
+        /// <c>diff</c> or <c>derivative</c> of this series is a loss-free pause-time rate even
+        /// when the event-based GC metrics undercount. Tags: <c>gc_mode</c>, <c>latency_mode</c>,
+        /// and <c>compaction_mode</c>.
+        /// </summary>
+        internal const string GcTotalPauseTimeMs = "clr_diagnostics_timer.gc.total_pause_time_ms";
 
         /// <summary>Gauge without metric-specific tags.</summary>
         internal const string ProcessCpu = "clr_diagnostics_timer.process.cpu";
@@ -144,6 +174,14 @@ internal static class MetricNames
         /// <summary>Gauge without metric-specific tags.</summary>
         internal const string ThreadCompletedItemsCount = "clr_diagnostics_timer.thread.completed_items_count";
 
+        /// <summary>
+        /// Gauge carrying the cumulative number of events a profiler discarded because its bounded
+        /// delivery state was full. Read a <c>diff</c> or <c>derivative</c> of this series: any
+        /// non-zero rate means the other <c>clr_diagnostics_event.*</c> metrics are undercounting
+        /// for that profiler over the same window. Tags: <c>profiler</c>.
+        /// </summary>
+        internal const string ProfilerDroppedEventCount = "clr_diagnostics_timer.profiler.dropped_event_count";
+
         private static readonly string[] Values =
         [
             GcHeapSizeBytes,
@@ -151,6 +189,7 @@ internal static class MetricNames
             GcCount,
             GcSize,
             GcTimeInGcPercent,
+            GcTotalPauseTimeMs,
             ProcessCpu,
             ProcessPrivateBytes,
             ProcessWorkingSets,
@@ -164,6 +203,7 @@ internal static class MetricNames
             ThreadQueueLength,
             ThreadLockContentionCount,
             ThreadCompletedItemsCount,
+            ProfilerDroppedEventCount,
         ];
 
         /// <summary>All timer metric names in catalog order.</summary>

@@ -82,6 +82,44 @@ tracker.StartTracker();
 
 Each factory is invoked once when `ProfilerTracker` is constructed. When using `ClrTracker`, this happens inside `EnableTracker()` for Datadog, Logger, and Custom tracker types. The tracker owns the returned profiler and includes it in `Start`, `Stop`, `Restart`, `Cancel`, and `Dispose`. Custom profilers remain responsible for bounded, non-blocking event processing and callback error handling.
 
+`IProfiler.DroppedEventCount` reports how many events a profiler discarded; it defaults to `0`, so a profiler written before the member existed keeps compiling. A custom profiler that drops events should report its own cumulative count so the profiler diagnostics metric below covers it.
+
+### Observe what the profiler itself dropped
+
+Every bounded queue in ClrProfiler retains the newest values and discards the rest, so a reader that cannot keep up loses data. `ProfilerFeature.ProfilerDiagnosticsTimer` (enabled by default) samples `IProfiler.DroppedEventCount` for every profiler the tracker owns and emits one `ProfilerDiagnosticsStatistics` per profiler per tick, on the same `TimerOption` interval as the other timers.
+
+```
+clr_diagnostics_timer.profiler.dropped_event_count:0|g|#app:YourAppName,profiler:GCEventProfiler
+clr_diagnostics_timer.profiler.dropped_event_count:0|g|#app:YourAppName,profiler:ContentionEventProfiler
+```
+
+The value is cumulative for the profiler's lifetime, so read a `diff` or `derivative` of the series. Any non-zero rate means the `clr_diagnostics_event.*` metrics are undercounting for that profiler over the same window; treat a persistently rising count as a signal that the reader is starved rather than as a signal about the application.
+
+Because the counts are cumulative, a stalled reader delays this metric instead of corrupting it: the newest sample still carries the true total. The diagnostics reader is independent of the other listeners' readers, so a listener whose reader stalls still has its rising count reported.
+
+The `profiler` tag is bounded to the built-in profiler names; any other name, including one from `AdditionalProfilerFactories`, is reported as `profiler:unknown` so a caller-controlled string cannot grow the metric's cardinality.
+
+### GC heap statistics and loss-free pause time
+
+`ProfilerFeature.GCEvent` also parses the runtime's `GCHeapStats_V1`/`GCHeapStats_V2` event, which the CLR emits at the end of every collection under the same GC keyword. Each heap-stats event carries the exact post-collection heap state and is delivered as `GCEventStatistics` with `GCEventType.GCHeapStats`:
+
+```
+clr_diagnostics_event.gc.heapstats_size_bytes:1234|g|#app:YourAppName,gc_gen:0
+clr_diagnostics_event.gc.heapstats_size_bytes:1234|g|#app:YourAppName,gc_gen:poh
+clr_diagnostics_event.gc.heapstats_finalization_promoted_bytes:0|g|#app:YourAppName
+clr_diagnostics_event.gc.heapstats_pinned_object_count:3|g|#app:YourAppName
+clr_diagnostics_event.gc.heapstats_gc_handle_count:521|g|#app:YourAppName
+```
+
+Sizes are tagged `gc_gen:0|1|2|loh|poh`. Runtimes that emit the V1 payload predate the pinned object heap, so `gc_gen:poh` reports zero there.
+
+`ProfilerFeature.GCInfoTimer` samples complement the event-based metrics with runtime counters that cannot drop:
+
+- `clr_diagnostics_timer.gc.total_pause_time_ms` carries `GC.GetTotalPauseDuration()`, the cumulative milliseconds the runtime paused for GC since process start. Read a `diff` or `derivative` of the series for a loss-free pause-time rate; it stays exact even when `clr_diagnostics_event.gc.*` undercounts under load.
+- Generation sizes (`clr_diagnostics_timer.gc.gc_size`) come from the public `GC.GetGCMemoryInfo().GenerationInfo` API rather than private reflection, so they keep working across runtime updates.
+
+CLR event subscription starts in `StartTracker()`, after the callback handlers are registered — no event can arrive between `EnableTracker()` and `StartTracker()` only to be discarded unseen. If an event ever reaches a listener without a registered handler, it is counted into `DroppedEventCount` instead of being silently lost. The GC event delivery channel retains 512 values (other listeners retain 50) because one collection emits start/end, suspend, and heap-stats values and gen0 bursts arrive faster than a metric backend flushes.
+
 ## Debugging
 
 If you want debug behaviour, use ClrTrackerType.Logger instead. This will log metrics to ILogger.Debug.
@@ -154,6 +192,14 @@ public class MyCustomTrackerHandler : IClrTrackerCallbackHandler
         return Task.CompletedTask;
     }
 
+    // Optional. Defaults to ignoring the sample, so an existing handler keeps compiling.
+    // Override it to see how much data each profiler discarded.
+    public Task OnProfilerDiagnosticsTimerAsync(ProfilerDiagnosticsStatistics statistics)
+    {
+        _metrics.RecordProfilerDiagnostics(statistics);
+        return Task.CompletedTask;
+    }
+
     public void OnException(Exception exception)
     {
         // Custom exception handling
@@ -176,7 +222,7 @@ tracker.StartTracker();
 
 This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
 
-Bounded delivery queues keep producers non-blocking and retain the newest values when a reader falls behind. `GCEventListener`, `ThreadPoolEventListener`, `GCInfoTimerListener`, `ProcessInfoTimerListener`, and `ThreadInfoTimerListener` expose a cumulative `DroppedEventCount` for values evicted from their delivery channels. The counter is thread-safe and is not reset by stop or restart.
+Bounded delivery queues keep producers non-blocking and retain the newest values when a reader falls behind. `GCEventListener`, `ThreadPoolEventListener`, `GCInfoTimerListener`, `ProcessInfoTimerListener`, `ThreadInfoTimerListener`, and `ProfilerDiagnosticsTimerListener` expose a cumulative `DroppedEventCount` for values evicted from their delivery channels. The counter is thread-safe and is not reset by stop or restart. Each count is also surfaced as a metric; see [Observe what the profiler itself dropped](#observe-what-the-profiler-itself-dropped).
 
 Contention callbacks place samples in a fixed-capacity MPSC queue and aggregate them by contention flag on the single reader. One `ContentionEventStatistics` can therefore represent many accepted events, while its `Count`, duration sum, maximum, and timestamp always come from the same delivery window.
 
@@ -188,7 +234,7 @@ Contention callbacks place samples in a fixed-capacity MPSC queue and aggregate 
 | `DurationNsMean` | `DurationNsSum / Count`, or 0 when nothing was aggregated. |
 | `Time` | Timestamp of the newest event observed for the flag. The duration fields summarize the whole window, so they are not tied to this timestamp. |
 
-The producer never waits for the reader and does not use an unbounded spin loop. Queue reservation has a fixed retry limit; a sample is rejected when the queue is full or that limit is exhausted. `ContentionEventListener.DroppedEventCount` exposes the cumulative rejected count. Durations of accepted samples accumulate as whole picoseconds; non-finite or negative durations contribute 0 while still being counted.
+The producer never waits for the reader and does not use an unbounded spin loop. Queue reservation has a fixed retry limit; a sample is rejected when the queue is full or that limit is exhausted. `ContentionEventListener.DroppedEventCount` exposes the cumulative rejected count, which is also exported as `clr_diagnostics_timer.profiler.dropped_event_count{profiler:ContentionEventProfiler}`. Durations of accepted samples accumulate as whole picoseconds; non-finite or negative durations contribute 0 while still being counted.
 
 Aggregates are reset per dispatch. For accepted samples, every individual value and the totals across dispatches are exact.
 

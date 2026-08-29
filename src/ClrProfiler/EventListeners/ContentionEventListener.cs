@@ -42,9 +42,10 @@ public class ContentionEventListener : ProfileEventListenerBase, IChannelReader
 
     /// <summary>
     /// Gets the cumulative number of contention samples rejected because the fixed event queue
-    /// was full or a producer could not reserve a slot within the bounded retry limit.
+    /// was full or a producer could not reserve a slot within the bounded retry limit, plus any
+    /// event delivered before a handler was registered.
     /// </summary>
-    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount);
+    public long DroppedEventCount => Volatile.Read(ref _droppedEventCount) + UnobservedEventCount;
 
     public ContentionEventListener(Func<ContentionEventStatistics, Task> onEventEmit, Action<Exception> onEventError) : base("Microsoft-Windows-DotNETRuntime", EventLevel.Informational, ClrRuntimeEventKeywords.Contention)
     {

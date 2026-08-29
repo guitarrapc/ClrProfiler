@@ -8,7 +8,7 @@ public enum GCMode
     Workstation = 0,
     Server = 1,
 }
-public readonly struct GCInfoStatistics(DateTime date, GCMode gCMode, GCLargeObjectHeapCompactionMode compactionMode, GCLatencyMode latencyMode, long heapSize, long totalAllocationSize, int gen0Count, int gen1Count, int gen2Count, int timeInGc, ulong gen0Size, ulong gen1Size, ulong gen2Size, ulong lohSize) : IEquatable<GCInfoStatistics>
+public readonly struct GCInfoStatistics(DateTime date, GCMode gCMode, GCLargeObjectHeapCompactionMode compactionMode, GCLatencyMode latencyMode, long heapSize, long totalAllocationSize, int gen0Count, int gen1Count, int gen2Count, int timeInGc, ulong gen0Size, ulong gen1Size, ulong gen2Size, ulong lohSize, double totalPauseTimeMillisec) : IEquatable<GCInfoStatistics>
 {
     public readonly DateTime Date = date;
     public readonly GCMode GCMode = gCMode;
@@ -57,6 +57,12 @@ public readonly struct GCInfoStatistics(DateTime date, GCMode gCMode, GCLargeObj
     /// bytes
     /// </summary>
     public readonly ulong LohSize = lohSize;
+    /// <summary>
+    /// Cumulative milliseconds the runtime paused for GC since process start, from
+    /// <see cref="GC.GetTotalPauseDuration"/>. A counter cannot drop, so consumers read a diff
+    /// or derivative of this series for a loss-free pause-time rate.
+    /// </summary>
+    public readonly double TotalPauseTimeMillisec = totalPauseTimeMillisec;
 
     public override bool Equals(object? obj)
     {
@@ -78,7 +84,8 @@ public readonly struct GCInfoStatistics(DateTime date, GCMode gCMode, GCLargeObj
                Gen0Size == other.Gen0Size &&
                Gen1Size == other.Gen1Size &&
                Gen2Size == other.Gen2Size &&
-               LohSize == other.LohSize;
+               LohSize == other.LohSize &&
+               TotalPauseTimeMillisec == other.TotalPauseTimeMillisec;
     }
 
     public override int GetHashCode()
@@ -98,6 +105,7 @@ public readonly struct GCInfoStatistics(DateTime date, GCMode gCMode, GCLargeObj
         hash.Add(Gen1Size);
         hash.Add(Gen2Size);
         hash.Add(LohSize);
+        hash.Add(TotalPauseTimeMillisec);
         return hash.ToHashCode();
     }
 

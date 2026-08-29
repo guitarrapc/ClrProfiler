@@ -12,13 +12,19 @@ public class EventListenerDataIntegrityTest
     [Test]
     public async Task GCEventListenerPreservesEveryEventAtChannelCapacity()
     {
-        var actual = new List<GCEventStatistics>(ChannelCapacity);
+        // The GC channel is intentionally larger than the other listeners' channels: a gen0
+        // burst emits start/end, suspend, and heap-stats values per collection while the reader
+        // awaits the user callback, and each retained slot is a compact struct.
+        await Assert.That(GCEventListener.ChannelCapacity).IsEqualTo(512);
+
+        var capacity = GCEventListener.ChannelCapacity;
+        var actual = new List<GCEventStatistics>(capacity);
         using var cts = new CancellationTokenSource(TestTimeout);
         TestableGCEventListener? listener = null;
         listener = new TestableGCEventListener(value =>
         {
             actual.Add(value);
-            if (actual.Count == ChannelCapacity)
+            if (actual.Count == capacity)
             {
                 cts.Cancel();
             }
@@ -27,7 +33,7 @@ public class EventListenerDataIntegrityTest
         using (listener)
         {
             var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            for (var i = 0; i < ChannelCapacity / 2; i++)
+            for (var i = 0; i < capacity / 2; i++)
             {
                 var gcStart = origin.AddTicks(i * 10_000L);
                 var gcEnd = gcStart.AddTicks(5_000);
@@ -44,8 +50,8 @@ public class EventListenerDataIntegrityTest
             await listener.OnReadResultAsync(cts.Token);
         }
 
-        await Assert.That(actual.Count).IsEqualTo(ChannelCapacity);
-        for (var i = 0; i < ChannelCapacity / 2; i++)
+        await Assert.That(actual.Count).IsEqualTo(capacity);
+        for (var i = 0; i < capacity / 2; i++)
         {
             var startEnd = actual[i * 2];
             await Assert.That(startEnd.Type).IsEqualTo(GCEventType.GCStartEnd);
@@ -66,12 +72,13 @@ public class EventListenerDataIntegrityTest
     [Test]
     public async Task GCEventListenerReportsEventsDroppedBeyondChannelCapacity()
     {
-        var actual = new List<GCEventStatistics>(ChannelCapacity);
+        var capacity = GCEventListener.ChannelCapacity;
+        var actual = new List<GCEventStatistics>(capacity);
         using var cts = new CancellationTokenSource(TestTimeout);
         using var listener = new TestableGCEventListener(value =>
         {
             actual.Add(value);
-            if (actual.Count == ChannelCapacity)
+            if (actual.Count == capacity)
             {
                 cts.Cancel();
             }
@@ -79,23 +86,23 @@ public class EventListenerDataIntegrityTest
         });
         var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        for (var i = 0; i < ChannelCapacity; i++)
+        for (var i = 0; i < capacity; i++)
         {
             listener.ProcessEvent("GCSuspendEEBegin_V1", origin.AddTicks(i * 2L), [1U, (uint)i]);
             listener.ProcessEvent("GCRestartEEEnd_V1", origin.AddTicks((i * 2L) + 1), []);
         }
         await Assert.That(listener.DroppedEventCount).IsEqualTo(0L);
 
-        listener.ProcessEvent("GCSuspendEEBegin_V1", origin.AddTicks(ChannelCapacity * 2L), [1U, (uint)ChannelCapacity]);
-        listener.ProcessEvent("GCRestartEEEnd_V1", origin.AddTicks((ChannelCapacity * 2L) + 1), []);
+        listener.ProcessEvent("GCSuspendEEBegin_V1", origin.AddTicks(capacity * 2L), [1U, (uint)capacity]);
+        listener.ProcessEvent("GCRestartEEEnd_V1", origin.AddTicks((capacity * 2L) + 1), []);
 
         await Assert.That(listener.DroppedEventCount).IsEqualTo(1L);
         listener.EnableReading();
         await listener.OnReadResultAsync(cts.Token);
 
-        await Assert.That(actual).Count().IsEqualTo(ChannelCapacity);
+        await Assert.That(actual).Count().IsEqualTo(capacity);
         await Assert.That(actual[0].GCSuspendStatistics.Count).IsEqualTo(1U);
-        await Assert.That(actual[^1].GCSuspendStatistics.Count).IsEqualTo((uint)ChannelCapacity);
+        await Assert.That(actual[^1].GCSuspendStatistics.Count).IsEqualTo((uint)capacity);
     }
 
     [Test]
@@ -359,7 +366,9 @@ public class EventListenerDataIntegrityTest
         var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var end = start.AddTicks(5_000);
 
-        for (var i = 0; i < 100; i++)
+        // Warm up past the channel capacity so the bounded channel's one-time segment growth
+        // happens before the measured loop and only the steady drop-oldest path is measured.
+        for (var i = 0; i < GCEventListener.ChannelCapacity + 100; i++)
         {
             listener.ProcessEvent("GCStart_V2", start, startPayload);
             listener.ProcessEvent("GCEnd_V1", end, endPayload);
@@ -489,6 +498,150 @@ public class EventListenerDataIntegrityTest
         await Assert.That(result.Reason).IsEqualTo(1U);
         await Assert.That(result.Count).IsEqualTo(123U);
         await Assert.That(result.DurationMillisec).IsEqualTo(0.5);
+    }
+
+    [Test]
+    public async Task GCEventListenerParsesHeapStatsV2IntoHeapStatistics()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            // GCHeapStats_V2 payload: GenerationSize0, TotalPromotedSize0, GenerationSize1,
+            // TotalPromotedSize1, GenerationSize2, TotalPromotedSize2, GenerationSize3,
+            // TotalPromotedSize3, FinalizationPromotedSize, FinalizationPromotedCount,
+            // PinnedObjectCount, SinkBlockCount, GCHandleCount, ClrInstanceID,
+            // GenerationSize4, TotalPromotedSize4.
+            listener.ProcessEvent("GCHeapStats_V2", origin,
+                [100UL, 10UL, 200UL, 20UL, 300UL, 30UL, 400UL, 40UL, 55UL, 5UL, 7U, 3U, 900U, (ushort)1, 500UL, 50UL]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var result = await Assert.That(actual).HasSingleItem();
+        await Assert.That(result.Type).IsEqualTo(GCEventType.GCHeapStats);
+        var heapStats = result.GCHeapStatistics;
+        await Assert.That(heapStats.Time).IsEqualTo(origin.Ticks);
+        await Assert.That(heapStats.Gen0Size).IsEqualTo(100UL);
+        await Assert.That(heapStats.Gen1Size).IsEqualTo(200UL);
+        await Assert.That(heapStats.Gen2Size).IsEqualTo(300UL);
+        await Assert.That(heapStats.LohSize).IsEqualTo(400UL);
+        await Assert.That(heapStats.PohSize).IsEqualTo(500UL);
+        await Assert.That(heapStats.FinalizationPromotedSize).IsEqualTo(55UL);
+        await Assert.That(heapStats.PinnedObjectCount).IsEqualTo(7U);
+        await Assert.That(heapStats.GCHandleCount).IsEqualTo(900U);
+    }
+
+    [Test]
+    public async Task GCEventListenerParsesHeapStatsV1WithoutPohAsZero()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCHeapStats_V1", origin,
+                [100UL, 10UL, 200UL, 20UL, 300UL, 30UL, 400UL, 40UL, 55UL, 5UL, 7U, 3U, 900U, (ushort)1]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        var heapStats = (await Assert.That(actual).HasSingleItem()).GCHeapStatistics;
+        await Assert.That(heapStats.LohSize).IsEqualTo(400UL);
+        await Assert.That(heapStats.PohSize).IsEqualTo(0UL);
+        await Assert.That(heapStats.GCHandleCount).IsEqualTo(900U);
+    }
+
+    [Test]
+    public async Task GCEventListenerMalformedHeapStatsReportsErrorAndProcessesLaterEvent()
+    {
+        var actual = new List<GCEventStatistics>(1);
+        var errors = new List<Exception>(1);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCEventListener(value =>
+        {
+            actual.Add(value);
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        }, errors.Add);
+
+        var origin = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        listener.EnableReading();
+        var readerTask = listener.OnReadResultAsync(cts.Token).AsTask();
+        try
+        {
+            listener.ProcessEvent("GCHeapStats_V2", origin, [100UL]);
+            listener.ProcessEvent("GCHeapStats_V2", origin.AddTicks(1),
+                [100UL, 10UL, 200UL, 20UL, 300UL, 30UL, 400UL, 40UL, 55UL, 5UL, 7U, 3U, 900U, (ushort)1, 500UL, 50UL]);
+
+            await completed.Task.WaitAsync(TestTimeout, TestContext.Current!.Execution.CancellationToken);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            await readerTask;
+        }
+
+        await Assert.That(errors).HasSingleItem();
+        var heapStats = (await Assert.That(actual).HasSingleItem()).GCHeapStatistics;
+        await Assert.That(heapStats.Time).IsEqualTo(origin.AddTicks(1).Ticks);
+        await Assert.That(heapStats.PohSize).IsEqualTo(500UL);
+    }
+
+    [Test]
+    public async Task GCEventListenerHeapStatsHotPathDoesNotAllocate()
+    {
+        using var listener = new TestableGCEventListener(_ => Task.CompletedTask);
+        object?[] payload = [100UL, 10UL, 200UL, 20UL, 300UL, 30UL, 400UL, 40UL, 55UL, 5UL, 7U, 3U, 900U, (ushort)1, 500UL, 50UL];
+        var timeStamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Warm up past the channel capacity so the bounded channel's one-time segment growth
+        // happens before the measured loop and only the steady drop-oldest path is measured.
+        for (var i = 0; i < GCEventListener.ChannelCapacity + 100; i++)
+        {
+            listener.ProcessEvent("GCHeapStats_V2", timeStamp, payload);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 10_000; i++)
+        {
+            listener.ProcessEvent("GCHeapStats_V2", timeStamp, payload);
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        await Assert.That(allocated).IsEqualTo(0);
     }
 
     [Test]

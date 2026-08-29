@@ -56,6 +56,7 @@ public class ClrTracker : IDisposable
                     GCInfoTimerCallback = (_options.CustomHandler.OnGCInfoTimerAsync, _options.CustomHandler.OnException),
                     ProcessInfoTimerCallback = (_options.CustomHandler.OnProcessInfoTimerAsync, _options.CustomHandler.OnException),
                     ThreadInfoTimerCallback = (_options.CustomHandler.OnThreadInfoTimerAsync, _options.CustomHandler.OnException),
+                    ProfilerDiagnosticsTimerCallback = (_options.CustomHandler.OnProfilerDiagnosticsTimerAsync, _options.CustomHandler.OnException),
                 },
                 ClrTrackerType.Custom when _options.CustomHandler is null => throw new ArgumentException($"{nameof(ClrTrackerType.Custom)}: {_options.CustomHandler} is null, you must set custom Handler."),
                 _ => throw new NotImplementedException($"{nameof(ClrTrackerType)}: {_options.TrackerType} not implemented."),
@@ -123,6 +124,7 @@ public class ClrTracker : IDisposable
             GCInfoTimerCallback = (datadogTrackerHandler.OnGCInfoTimerAsync, datadogTrackerHandler.OnException),
             ProcessInfoTimerCallback = (datadogTrackerHandler.OnProcessInfoTimerAsync, datadogTrackerHandler.OnException),
             ThreadInfoTimerCallback = (datadogTrackerHandler.OnThreadInfoTimerAsync, datadogTrackerHandler.OnException),
+            ProfilerDiagnosticsTimerCallback = (datadogTrackerHandler.OnProfilerDiagnosticsTimerAsync, datadogTrackerHandler.OnException),
         };
     }
 
@@ -137,6 +139,7 @@ public class ClrTracker : IDisposable
             GCInfoTimerCallback = (loggerTrackerHandler.OnGCInfoTimerAsync, loggerTrackerHandler.OnException),
             ProcessInfoTimerCallback = (loggerTrackerHandler.OnProcessInfoTimerAsync, loggerTrackerHandler.OnException),
             ThreadInfoTimerCallback = (loggerTrackerHandler.OnThreadInfoTimerAsync, loggerTrackerHandler.OnException),
+            ProfilerDiagnosticsTimerCallback = (loggerTrackerHandler.OnProfilerDiagnosticsTimerAsync, loggerTrackerHandler.OnException),
         };
     }
 

@@ -18,7 +18,6 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
     private readonly TimeSpan _dueTime;
     private readonly TimeSpan _intervalPeriod;
 
-    private readonly Func<int, ulong>? _getGenerationSizeDelegate;
     private readonly Func<int>? _getLastGCPercentTimeInGC;
 
     /// <summary>
@@ -40,9 +39,8 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
         _intervalPeriod = intervalPeriod;
         _dispatcher = new BoundedChannelDispatcher<GCInfoStatistics>(50, singleWriter: true, onEventEmit, onEventError);
 
-        var methodGetGenerationSize = typeof(GC).GetMethod("GetGenerationSize", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy);
-        _getGenerationSizeDelegate = (Func<int, ulong>?)methodGetGenerationSize?.CreateDelegate(typeof(Func<int, ulong>));
-
+        // GetLastGCPercentTimeInGC has no public equivalent with the same last-GC semantics
+        // (GCMemoryInfo.PauseTimePercentage is cumulative), so it stays on reflection.
         var methodGetLastGCPercentTimeInGC = typeof(GC).GetMethod("GetLastGCPercentTimeInGC", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy);
         _getLastGCPercentTimeInGC = (Func<int>?)methodGetLastGCPercentTimeInGC?.CreateDelegate(typeof(Func<int>));
     }
@@ -100,13 +98,16 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
             var gen0Count = GC.CollectionCount(0);
             var gen1Count = GC.CollectionCount(1);
             var gen2Count = GC.CollectionCount(2);
-            //var memoryInfo = GC.GetGCMemoryInfo(); // not in use. should we?
-            var gen0Size = _getGenerationSizeDelegate?.Invoke(0) ?? 0;
-            var gen1Size = _getGenerationSizeDelegate?.Invoke(1) ?? 0;
-            var gen2Size = _getGenerationSizeDelegate?.Invoke(2) ?? 0;
-            var lohSize = _getGenerationSizeDelegate?.Invoke(3) ?? 0;
+            // Generation sizes after the most recent GC, from the public API instead of private
+            // reflection. GenerationInfo is empty until the first GC has happened.
+            var generationInfo = GC.GetGCMemoryInfo().GenerationInfo;
+            var gen0Size = GetGenerationSizeAfterBytes(generationInfo, 0);
+            var gen1Size = GetGenerationSizeAfterBytes(generationInfo, 1);
+            var gen2Size = GetGenerationSizeAfterBytes(generationInfo, 2);
+            var lohSize = GetGenerationSizeAfterBytes(generationInfo, 3);
             var timeInGc = _getLastGCPercentTimeInGC?.Invoke() ?? 0;
-            var stat = new GCInfoStatistics(date, gcmode, compactionMode, latencyMode, heapSize, totalAllocationBytes, gen0Count, gen1Count, gen2Count, timeInGc, gen0Size, gen1Size, gen2Size, lohSize);
+            var totalPauseTimeMillisec = GC.GetTotalPauseDuration().TotalMilliseconds;
+            var stat = new GCInfoStatistics(date, gcmode, compactionMode, latencyMode, heapSize, totalAllocationBytes, gen0Count, gen1Count, gen2Count, timeInGc, gen0Size, gen1Size, gen2Size, lohSize, totalPauseTimeMillisec);
 
             _dispatcher.TryWrite(stat);
         }
@@ -114,5 +115,12 @@ public class GCInfoTimerListener : TimerListenerBase, IDisposable, IChannelReade
         {
             _onEventError?.Invoke(ex);
         }
+    }
+
+    private static ulong GetGenerationSizeAfterBytes(ReadOnlySpan<GCGenerationInfo> generationInfo, int index)
+    {
+        if ((uint)index >= (uint)generationInfo.Length) return 0UL;
+        var sizeAfterBytes = generationInfo[index].SizeAfterBytes;
+        return sizeAfterBytes > 0 ? (ulong)sizeAfterBytes : 0UL;
     }
 }

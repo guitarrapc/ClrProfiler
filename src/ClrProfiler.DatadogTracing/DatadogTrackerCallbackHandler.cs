@@ -21,6 +21,10 @@ public class DatadogTrackerCallbackHandler(ILogger logger) : IClrTrackerCallback
         {
             DatadogTracing.GcEventSuspend(statistics.GCSuspendStatistics);
         }
+        else if (statistics.Type == GCEventType.GCHeapStats)
+        {
+            DatadogTracing.GcEventHeapStats(statistics.GCHeapStatistics);
+        }
         return Task.CompletedTask;
     }
 
@@ -33,6 +37,12 @@ public class DatadogTrackerCallbackHandler(ILogger logger) : IClrTrackerCallback
     public Task OnProcessInfoTimerAsync(ProcessInfoStatistics statistics)
     {
         DatadogTracing.ProcessInfoTimerGauge(statistics);
+        return Task.CompletedTask;
+    }
+
+    public Task OnProfilerDiagnosticsTimerAsync(ProfilerDiagnosticsStatistics statistics)
+    {
+        DatadogTracing.ProfilerDiagnosticsTimerGauge(statistics);
         return Task.CompletedTask;
     }
 

@@ -44,6 +44,7 @@ public class ProfilerLifecycleTest
             nameof(ThreadInfoTimerProfiler),
             nameof(GCInfoTimerProfiler),
             nameof(ProcessInfoTimerProfiler),
+            nameof(ProfilerDiagnosticsTimerProfiler),
         ]);
     }
 

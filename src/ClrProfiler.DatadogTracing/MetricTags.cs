@@ -66,11 +66,29 @@ internal static class MetricTags
     private static readonly string[] GcLatencyModeTagValues = CreateGcLatencyModeTagValues();
     private static readonly string[] GcCompactionModeTagValues = CreateGcCompactionModeTagValues();
 
+    /// <summary>
+    /// Profiler names that get their own tag value. Any other name, including one from a custom
+    /// <see cref="IProfiler"/>, projects to <c>profiler:unknown</c> so a caller-controlled string
+    /// can never grow the tag cache or the metric's cardinality.
+    /// </summary>
+    private static readonly string[] KnownProfilerNames =
+    [
+        nameof(GCEventProfiler),
+        nameof(ThreadPoolEventProfiler),
+        nameof(ContentionEventProfiler),
+        nameof(ThreadInfoTimerProfiler),
+        nameof(GCInfoTimerProfiler),
+        nameof(ProcessInfoTimerProfiler),
+        nameof(ProfilerDiagnosticsTimerProfiler),
+    ];
+
     private static readonly MetricTagSet[] ContentionTags = CreateSingleValueTagSets(ContentionTagValues);
     private static readonly MetricTagSet[] GcStartEndTags = CreateGcStartEndTags();
+    private static readonly MetricTagSet[] GcHeapStatsGenerationTags = CreateGcHeapStatsGenerationTags();
     private static readonly MetricTagSet[] GcSuspendTags = CreateSingleValueTagSets(GcSuspendTagValues);
     private static readonly MetricTagSet[] ThreadAdjustmentTags = CreateSingleValueTagSets(ThreadAdjustmentTagValues);
     private static readonly GcInfoMetricTagSet[] GcInfoTags = CreateGcInfoTags();
+    private static readonly MetricTagSet[] ProfilerTags = CreateSingleValueTagSets(CreateProfilerTagValues());
 
     static MetricTags()
     {
@@ -95,6 +113,15 @@ internal static class MetricTags
         var reasonIndex = reason < KnownGcReasonCount ? (int)reason : KnownGcReasonCount;
         var index = (generationIndex * GcTypeCount * GcReasonCount) + (typeIndex * GcReasonCount) + reasonIndex;
         return ref GcStartEndTags[index];
+    }
+
+    /// <summary>
+    /// Single <c>gc_gen</c> tag for heap-stats sizes. Indexes 0..2 are the numeric generations,
+    /// 3 is <c>loh</c>, and 4 is <c>poh</c>; the table is fixed, so callers pass constants.
+    /// </summary>
+    public static ref readonly MetricTagSet GetGcHeapStatsGeneration(int generation)
+    {
+        return ref GcHeapStatsGenerationTags[generation];
     }
 
     public static ref readonly MetricTagSet GetGcSuspend(uint reason)
@@ -135,6 +162,31 @@ internal static class MetricTags
 
         var index = (modeIndex * GcLatencyModeCount * GcCompactionModeCount) + (latencyIndex * GcCompactionModeCount) + compactionIndex;
         return ref GcInfoTags[index];
+    }
+
+    public static ref readonly MetricTagSet GetProfiler(string profilerName)
+    {
+        // A short ordinal scan over a fixed table. This runs once per profiler per timer tick, so it
+        // stays far cheaper than a dictionary lookup and allocates nothing.
+        for (var i = 0; i < KnownProfilerNames.Length; i++)
+        {
+            if (string.Equals(KnownProfilerNames[i], profilerName, StringComparison.Ordinal))
+            {
+                return ref ProfilerTags[i];
+            }
+        }
+        return ref ProfilerTags[KnownProfilerNames.Length];
+    }
+
+    private static string[] CreateProfilerTagValues()
+    {
+        var values = new string[KnownProfilerNames.Length + 1];
+        for (var i = 0; i < KnownProfilerNames.Length; i++)
+        {
+            values[i] = $"profiler:{KnownProfilerNames[i]}";
+        }
+        values[KnownProfilerNames.Length] = "profiler:unknown";
+        return values;
     }
 
     private static string[] CreateNumericTagValues(string prefix, int knownCount)
@@ -219,7 +271,7 @@ internal static class MetricTags
 
     private static GCInfoStatistics CreateGcInfo(GCMode mode, GCLatencyMode latencyMode, GCLargeObjectHeapCompactionMode compactionMode)
     {
-        return new GCInfoStatistics(default, mode, compactionMode, latencyMode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        return new GCInfoStatistics(default, mode, compactionMode, latencyMode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     private static MetricTagSet[] CreateSingleValueTagSets(string[] values)
@@ -230,6 +282,18 @@ internal static class MetricTags
             tags[i] = new MetricTagSet([values[i]]);
         }
         return tags;
+    }
+
+    private static MetricTagSet[] CreateGcHeapStatsGenerationTags()
+    {
+        return
+        [
+            new MetricTagSet([GcGenerationTagValues[0]]),
+            new MetricTagSet([GcGenerationTagValues[1]]),
+            new MetricTagSet([GcGenerationTagValues[2]]),
+            new MetricTagSet(["gc_gen:loh"]),
+            new MetricTagSet(["gc_gen:poh"]),
+        ];
     }
 
     private static MetricTagSet[] CreateGcStartEndTags()

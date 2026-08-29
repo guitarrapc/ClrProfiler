@@ -13,7 +13,19 @@ public abstract class ProfileEventListenerBase : EventListener
 
     private Action<EventWrittenEventArgs>? _eventWritten;
     private List<EventSource>? _tmpEventSourceList = [];
-    private readonly List<EventSource> _enabledEventSourceList = [];
+    // Sources matching the target. Recorded at any time, but only enabled while _listening,
+    // so no event is dispatched before a handler is registered in RunWithCallback.
+    private readonly List<EventSource> _matchedEventSourceList = [];
+    private readonly object _matchedSourceLock = new();
+    private bool _listening;
+    private long _unobservedEventCount;
+
+    /// <summary>
+    /// Gets the cumulative number of events delivered to this listener while no handler was
+    /// registered. Sources are enabled only after a handler is set, so a non-zero value means
+    /// the listener was restarted without ever being started.
+    /// </summary>
+    public long UnobservedEventCount => Volatile.Read(ref _unobservedEventCount);
 
     // .ctor call after OnEventSourceCreated. https://github.com/Microsoft/ApplicationInsights-dotnet/issues/1106
     // https://github.com/dotnet/corefx/blob/master/src/Common/tests/System/Diagnostics/Tracing/TestEventListener.cs#L40
@@ -65,17 +77,47 @@ public abstract class ProfileEventListenerBase : EventListener
             }
             foreach (EventSource source in sources)
             {
-                EnableSourceIfMatch(source, _keywords);
+                RecordSourceIfMatch(source);
             }
         }
     }
-    private void EnableSourceIfMatch(EventSource source, EventKeywords keywords)
+    private void RecordSourceIfMatch(EventSource source)
     {
         if (source.Name.Equals(_targetSourceName) ||
             source.Guid.Equals(_targetSourceGuid))
         {
-            EnableEvents(source, _level, keywords);
-            _enabledEventSourceList.Add(source);
+            bool listening;
+            lock (_matchedSourceLock)
+            {
+                _matchedEventSourceList.Add(source);
+                listening = _listening;
+            }
+            // Enable outside the lock: EnableEvents takes EventListener's own lock, and holding
+            // ours across it would order locks against OnEventSourceCreated callbacks.
+            if (listening)
+            {
+                EnableEvents(source, _level, _keywords);
+            }
+        }
+    }
+    private void SetListening(bool listening)
+    {
+        EventSource[] sources;
+        lock (_matchedSourceLock)
+        {
+            _listening = listening;
+            sources = [.. _matchedEventSourceList];
+        }
+        foreach (var source in sources)
+        {
+            if (listening)
+            {
+                EnableEvents(source, _level, _keywords);
+            }
+            else
+            {
+                DisableEvents(source);
+            }
         }
     }
 
@@ -97,36 +139,48 @@ public abstract class ProfileEventListenerBase : EventListener
             }
         }
 
-        EnableSourceIfMatch(eventSource, _keywords);
+        RecordSourceIfMatch(eventSource);
     }
     // Called whenever an event is written.
     protected override void OnEventWritten(EventWrittenEventArgs eventData)
     {
         base.OnEventWritten(eventData);
-        _eventWritten?.Invoke(eventData);
+        var handler = _eventWritten;
+        if (handler is null)
+        {
+            Interlocked.Increment(ref _unobservedEventCount);
+            return;
+        }
+        handler.Invoke(eventData);
     }
 
     /// <summary>
     /// Start listener, register handler and run body after registration.
+    /// Sources are enabled only here, after the handler is registered, so no event can arrive
+    /// while there is nothing to observe it.
     /// </summary>
     /// <param name="handler"></param>
     /// <param name="body"></param>
     public void RunWithCallback(Action<EventWrittenEventArgs> handler, Action body)
     {
-        Enabled = true;
         _eventWritten = handler;
+        Enabled = true;
+        SetListening(true);
         body();
     }
     /// <summary>
     /// Start listener, register handler and run body after registration.
+    /// Sources are enabled only here, after the handler is registered, so no event can arrive
+    /// while there is nothing to observe it.
     /// </summary>
     /// <param name="handler"></param>
     /// <param name="body"></param>
     /// <returns></returns>
     public async Task RunWithCallbackAsync(Action<EventWrittenEventArgs> handler, Func<Task> body)
     {
-        Enabled = true;
         _eventWritten = handler;
+        Enabled = true;
+        SetListening(true);
         await body().ConfigureAwait(false);
     }
 
@@ -136,10 +190,7 @@ public abstract class ProfileEventListenerBase : EventListener
     public virtual void Restart()
     {
         Enabled = true;
-        foreach (var enabled in _enabledEventSourceList)
-        {
-            EnableEvents(enabled, EventLevel.Informational, _keywords);
-        }
+        SetListening(true);
     }
     /// <summary>
     /// Stop listner
@@ -147,10 +198,7 @@ public abstract class ProfileEventListenerBase : EventListener
     public virtual void Stop()
     {
         Enabled = false;
-        foreach (var enabled in _enabledEventSourceList)
-        {
-            DisableEvents(enabled);
-        }
+        SetListening(false);
     }
 
     /// <summary>

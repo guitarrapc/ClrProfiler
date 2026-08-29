@@ -27,6 +27,18 @@ public static partial class LoggerTracing
         LogDoubleMetric(logger, MetricNames.Event.GcSuspendDurationMs, statistics.DurationMillisec, tags.Text);
     }
 
+    public static void GcEventHeapStats(in GCHeapStatistics statistics, ILogger logger)
+    {
+        LogULongMetric(logger, MetricNames.Event.GcHeapStatsSizeBytes, statistics.Gen0Size, MetricTags.GetGcHeapStatsGeneration(0).Text);
+        LogULongMetric(logger, MetricNames.Event.GcHeapStatsSizeBytes, statistics.Gen1Size, MetricTags.GetGcHeapStatsGeneration(1).Text);
+        LogULongMetric(logger, MetricNames.Event.GcHeapStatsSizeBytes, statistics.Gen2Size, MetricTags.GetGcHeapStatsGeneration(2).Text);
+        LogULongMetric(logger, MetricNames.Event.GcHeapStatsSizeBytes, statistics.LohSize, MetricTags.GetGcHeapStatsGeneration(3).Text);
+        LogULongMetric(logger, MetricNames.Event.GcHeapStatsSizeBytes, statistics.PohSize, MetricTags.GetGcHeapStatsGeneration(4).Text);
+        LogULongMetric(logger, MetricNames.Event.GcHeapStatsFinalizationPromotedBytes, statistics.FinalizationPromotedSize, string.Empty);
+        LogUIntMetric(logger, MetricNames.Event.GcHeapStatsPinnedObjectCount, statistics.PinnedObjectCount, string.Empty);
+        LogUIntMetric(logger, MetricNames.Event.GcHeapStatsGcHandleCount, statistics.GCHandleCount, string.Empty);
+    }
+
     public static void ThreadPoolEventWorker(in ThreadPoolWorkerStatistics statistics, ILogger logger)
     {
         LogUIntMetric(logger, MetricNames.Event.ThreadPoolAvailableWorkerThreadCount, statistics.ActiveWrokerThreads, string.Empty);
@@ -57,6 +69,7 @@ public static partial class LoggerTracing
         LogULongMetric(logger, MetricNames.Timer.GcSize, statistics.Gen2Size, tags.Gen2.Text);
         LogULongMetric(logger, MetricNames.Timer.GcSize, statistics.LohSize, tags.Loh.Text);
         LogIntMetric(logger, MetricNames.Timer.GcTimeInGcPercent, statistics.TimeInGc, tags.Base.Text);
+        LogDoubleMetric(logger, MetricNames.Timer.GcTotalPauseTimeMs, statistics.TotalPauseTimeMillisec, tags.Base.Text);
     }
 
     public static void ProcessInfoTimerGauge(in ProcessInfoStatistics statistics, ILogger logger)
@@ -78,6 +91,12 @@ public static partial class LoggerTracing
         LogLongMetric(logger, MetricNames.Timer.ThreadQueueLength, statistics.QueueLength, string.Empty);
         LogLongMetric(logger, MetricNames.Timer.ThreadLockContentionCount, statistics.LockContentionCount, string.Empty);
         LogLongMetric(logger, MetricNames.Timer.ThreadCompletedItemsCount, statistics.CompletedItemsCount, string.Empty);
+    }
+
+    public static void ProfilerDiagnosticsTimerGauge(in ProfilerDiagnosticsStatistics statistics, ILogger logger)
+    {
+        ref readonly var tags = ref MetricTags.GetProfiler(statistics.ProfilerName);
+        LogLongMetric(logger, MetricNames.Timer.ProfilerDroppedEventCount, statistics.DroppedEventCount, tags.Text);
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "{MetricName}: {Value}, tags: {Tags}")]

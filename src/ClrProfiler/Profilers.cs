@@ -17,6 +17,17 @@ public interface IProfiler : IDisposable
     bool Enabled { get; }
 
     /// <summary>
+    /// Cumulative number of events this profiler discarded because its bounded delivery state was
+    /// full. Exported by <see cref="ProfilerFeature.ProfilerDiagnosticsTimer"/> so a rising count is
+    /// visible in production instead of being silently absorbed.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to zero so a profiler that does not track loss stays source and binary compatible.
+    /// A custom profiler that drops events should report its own count here.
+    /// </remarks>
+    long DroppedEventCount => 0;
+
+    /// <summary>
     /// Start Profiling
     /// </summary>
     void Start();
@@ -42,6 +53,7 @@ public class GCEventProfiler : IProfiler
 
     public string Name { get; } = nameof(GCEventProfiler);
     public bool Enabled => listener != null && listener.Enabled;
+    public long DroppedEventCount => listener?.DroppedEventCount ?? 0;
 
     public GCEventProfiler(Func<GCEventStatistics, Task> onEventEmit, Action<Exception> onEventError)
     {
@@ -90,6 +102,7 @@ public class ThreadPoolEventProfiler : IProfiler
 
     public string Name { get; } = nameof(ThreadPoolEventProfiler);
     public bool Enabled => listener != null && listener.Enabled;
+    public long DroppedEventCount => listener?.DroppedEventCount ?? 0;
 
     public ThreadPoolEventProfiler(Func<ThreadPoolEventStatistics, Task> onEventEmit, Action<Exception> onEventError)
     {
@@ -138,6 +151,7 @@ public class ContentionEventProfiler : IProfiler
 
     public string Name { get; } = nameof(ContentionEventProfiler);
     public bool Enabled => listener != null && listener.Enabled;
+    public long DroppedEventCount => listener?.DroppedEventCount ?? 0;
 
     public ContentionEventProfiler(Func<ContentionEventStatistics, Task> onEventEmit, Action<Exception> onEventError)
     {
@@ -186,6 +200,7 @@ public class ThreadInfoTimerProfiler : IProfiler
 
     public string Name { get; } = nameof(ThreadInfoTimerProfiler);
     public bool Enabled => listener != null && listener.Enabled;
+    public long DroppedEventCount => listener?.DroppedEventCount ?? 0;
 
     public ThreadInfoTimerProfiler(Func<ThreadInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, (TimeSpan dueTime, TimeSpan interval) options)
     {
@@ -234,6 +249,7 @@ public class GCInfoTimerProfiler : IProfiler
 
     public string Name { get; } = nameof(GCInfoTimerProfiler);
     public bool Enabled => listener != null && listener.Enabled;
+    public long DroppedEventCount => listener?.DroppedEventCount ?? 0;
 
     public GCInfoTimerProfiler(Func<GCInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, (TimeSpan dueTime, TimeSpan interval) options)
     {
@@ -282,6 +298,7 @@ public class ProcessInfoTimerProfiler : IProfiler
 
     public string Name { get; } = nameof(ProcessInfoTimerProfiler);
     public bool Enabled => listener != null && listener.Enabled;
+    public long DroppedEventCount => listener?.DroppedEventCount ?? 0;
 
     public ProcessInfoTimerProfiler(Func<ProcessInfoStatistics, Task> onEventEmit, Action<Exception> onEventError, (TimeSpan dueTime, TimeSpan interval) options)
     {
@@ -302,6 +319,63 @@ public class ProcessInfoTimerProfiler : IProfiler
         listener?.RunWithCallback(() => listener.EventCreatedHandler(), () =>
         {
             Debug.WriteLine($"Start: {nameof(ProcessInfoTimerProfiler)}");
+        });
+    }
+
+    public void Stop()
+    {
+        listener?.Stop();
+    }
+
+    public async Task ReadResultAsync(CancellationToken cancellationToken)
+    {
+        if (listener != null)
+        {
+            await listener.OnReadResultAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public void Dispose()
+    {
+        listener?.Dispose();
+    }
+}
+
+/// <summary>
+/// Reports how much data every profiler the tracker owns has discarded.
+/// </summary>
+/// <remarks>
+/// Constructed with the tracker's own profiler collection, which includes this profiler. The
+/// collection is read on each timer tick rather than copied, so the tracker may pass the array it is
+/// still populating.
+/// </remarks>
+public class ProfilerDiagnosticsTimerProfiler : IProfiler
+{
+    private readonly ProfilerDiagnosticsTimerListener? listener;
+
+    public string Name { get; } = nameof(ProfilerDiagnosticsTimerProfiler);
+    public bool Enabled => listener != null && listener.Enabled;
+    public long DroppedEventCount => listener?.DroppedEventCount ?? 0;
+
+    public ProfilerDiagnosticsTimerProfiler(Func<ProfilerDiagnosticsStatistics, Task> onEventEmit, Action<Exception> onEventError, (TimeSpan dueTime, TimeSpan interval) options, IReadOnlyList<IProfiler?> profilers)
+    {
+        // enable only emit callback is exists.
+        if (onEventEmit != null)
+        {
+            listener = new ProfilerDiagnosticsTimerListener(onEventEmit, onEventError, options.dueTime, options.interval, profilers);
+        }
+    }
+
+    public void Restart()
+    {
+        listener?.Restart();
+    }
+
+    public void Start()
+    {
+        listener?.RunWithCallback(() => listener.EventCreatedHandler(), () =>
+        {
+            Debug.WriteLine($"Start: {nameof(ProfilerDiagnosticsTimerProfiler)}");
         });
     }
 

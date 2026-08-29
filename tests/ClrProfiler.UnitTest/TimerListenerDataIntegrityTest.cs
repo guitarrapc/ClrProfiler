@@ -49,6 +49,38 @@ public class TimerListenerDataIntegrityTest
     }
 
     [Test]
+    public async Task GCInfoTimerListenerSamplesPublicRuntimeGcCountersWithoutReflection()
+    {
+        var actual = new List<GCInfoStatistics>(1);
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var listener = new TestableGCInfoTimerListener(value =>
+        {
+            actual.Add(value);
+            cts.Cancel();
+            return Task.CompletedTask;
+        });
+
+        // Force a full collection so the last-GC data behind GC.GetGCMemoryInfo and the
+        // cumulative pause total are both guaranteed to be populated.
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+        var pauseBeforeSample = GC.GetTotalPauseDuration().TotalMilliseconds;
+
+        listener.EventCreatedHandler();
+        var pauseAfterSample = GC.GetTotalPauseDuration().TotalMilliseconds;
+
+        listener.EnableReading();
+        await listener.OnReadResultAsync(cts.Token);
+
+        var sample = await Assert.That(actual).HasSingleItem();
+        await Assert.That(pauseBeforeSample > 0D).IsTrue();
+        await Assert.That(sample.TotalPauseTimeMillisec >= pauseBeforeSample).IsTrue();
+        await Assert.That(sample.TotalPauseTimeMillisec <= pauseAfterSample).IsTrue();
+        // Generation sizes come from GC.GetGCMemoryInfo().GenerationInfo. After a forced full
+        // collection the heap holds runtime objects, so the generations cannot all be empty.
+        await Assert.That(sample.Gen0Size + sample.Gen1Size + sample.Gen2Size + sample.LohSize > 0UL).IsTrue();
+    }
+
+    [Test]
     public async Task GCInfoTimerListenerReportsSamplesDroppedBeyondChannelCapacity()
     {
         var actual = new List<GCInfoStatistics>(ChannelCapacity);

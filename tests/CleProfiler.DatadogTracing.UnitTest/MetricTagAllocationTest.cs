@@ -26,6 +26,9 @@ public class MetricTagAllocationTest
     private static readonly ILogger DisabledLogger = new DisabledLoggerImplementation();
     private static readonly Exception CallbackException = new InvalidOperationException("callback failed");
     private static readonly GCStartEndStatistics Statistics = new(1, 0, 2, 1, 1.5, 100, 200);
+    private const string KnownProfilerName = nameof(ClrProfiler.ProcessInfoTimerProfiler);
+    // Worst case for the bounded lookup: scans every known name, then falls back to unknown.
+    private const string UnknownProfilerName = "SomeCustomProfiler";
 
     [Test]
     public async Task LoggerGcEventStartEnd_WhenDebugDisabled_DoesNotAllocate()
@@ -105,12 +108,16 @@ public class MetricTagAllocationTest
             GCMode.Server,
             System.Runtime.GCLatencyMode.SustainedLowLatency,
             System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce);
+        ref readonly var knownProfiler = ref MetricTags.GetProfiler(KnownProfilerName);
+        ref readonly var unknownProfiler = ref MetricTags.GetProfiler(UnknownProfilerName);
 
         GC.KeepAlive(contention.Text);
         GC.KeepAlive(gc.Text);
         GC.KeepAlive(suspend.Text);
         GC.KeepAlive(thread.Text);
         GC.KeepAlive(gcInfo.Loh.Text);
+        GC.KeepAlive(knownProfiler.Text);
+        GC.KeepAlive(unknownProfiler.Text);
     }
 
     private sealed class DisabledLoggerImplementation : ILogger

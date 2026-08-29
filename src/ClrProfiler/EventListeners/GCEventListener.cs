@@ -14,6 +14,13 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
     // allowing indices separated by the table capacity to remain active together.
     private const int GCStartStateCapacity = 64;
 
+    /// <summary>
+    /// Bounded delivery capacity. Larger than the other listeners' channels because a gen0
+    /// collection burst emits start/end, suspend, and heap-stats values per collection while the
+    /// reader awaits the user callback, and each retained slot is a compact struct.
+    /// </summary>
+    internal const int ChannelCapacity = 512;
+
     private readonly BoundedChannelDispatcher<GCEventStatistics> _dispatcher;
     private readonly Action<Exception> _onEventError;
     private readonly GCStartStateSlot[] _gcStartStates = new GCStartStateSlot[GCStartStateCapacity];
@@ -25,14 +32,15 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
     private uint _suspendCount;
 
     /// <summary>
-    /// Gets the cumulative number of events evicted from the bounded delivery channel.
+    /// Gets the cumulative number of events evicted from the bounded delivery channel, plus any
+    /// event delivered before a handler was registered.
     /// </summary>
-    public long DroppedEventCount => _dispatcher.DroppedEventCount;
+    public long DroppedEventCount => _dispatcher.DroppedEventCount + UnobservedEventCount;
 
     public GCEventListener(Func<GCEventStatistics, Task> onEventEmit, Action<Exception> onEventError) : base("Microsoft-Windows-DotNETRuntime", EventLevel.Informational, ClrRuntimeEventKeywords.GC)
     {
         _onEventError = onEventError;
-        _dispatcher = new BoundedChannelDispatcher<GCEventStatistics>(50, singleWriter: false, onEventEmit, onEventError);
+        _dispatcher = new BoundedChannelDispatcher<GCEventStatistics>(ChannelCapacity, singleWriter: false, onEventEmit, onEventError);
     }
 
     // GC Flow
@@ -116,6 +124,29 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
 
                 // write to channel
                 _dispatcher.TryWrite(new GCEventStatistics(GCEventType.GCStartEnd, stat, new()));
+            }
+            else if (eventName.StartsWith("GCHeapStats_", StringComparison.OrdinalIgnoreCase)) // GCHeapStats_V1 / V2
+            {
+                // Standalone snapshot of heap state at the end of a collection; no correlation
+                // state is involved. Payload layout: GenerationSize0, TotalPromotedSize0,
+                // GenerationSize1, TotalPromotedSize1, GenerationSize2, TotalPromotedSize2,
+                // GenerationSize3, TotalPromotedSize3, FinalizationPromotedSize,
+                // FinalizationPromotedCount, PinnedObjectCount, SinkBlockCount, GCHandleCount,
+                // ClrInstanceID[, GenerationSize4, TotalPromotedSize4]. V2 appends the POH pair.
+                var gen0Size = ReadRequiredUInt64(payload, 0);
+                var gen1Size = ReadRequiredUInt64(payload, 2);
+                var gen2Size = ReadRequiredUInt64(payload, 4);
+                var lohSize = ReadRequiredUInt64(payload, 6);
+                var finalizationPromotedSize = ReadRequiredUInt64(payload, 8);
+                var pinnedObjectCount = ReadRequiredUInt32(payload, 10);
+                var gcHandleCount = ReadRequiredUInt32(payload, 12);
+                var pohSize = payload is not null && payload.Count > 14 && payload[14] is not null
+                    ? ReadRequiredUInt64(payload, 14)
+                    : 0UL;
+                var stat = new GCHeapStatistics(timeStamp.Ticks, gen0Size, gen1Size, gen2Size, lohSize, pohSize, finalizationPromotedSize, pinnedObjectCount, gcHandleCount);
+
+                // write to channel
+                _dispatcher.TryWrite(new GCEventStatistics(GCEventType.GCHeapStats, new(), new(), stat));
             }
             else if (eventName.StartsWith("GCSuspendEEBegin", StringComparison.OrdinalIgnoreCase))
             {
@@ -297,6 +328,27 @@ public class GCEventListener : ProfileEventListenerBase, IChannelReader
             ulong value => checked((uint)value),
             long value => checked((uint)value),
             _ => Convert.ToUInt32(payload[index], System.Globalization.CultureInfo.InvariantCulture),
+        };
+    }
+
+    private static ulong ReadRequiredUInt64(IReadOnlyList<object?>? payload, int index)
+    {
+        if (payload is null || (uint)index >= (uint)payload.Count || payload[index] is null)
+        {
+            throw new InvalidDataException($"Required GC payload at index {index} is missing.");
+        }
+
+        return payload[index] switch
+        {
+            ulong value => value,
+            long value => checked((ulong)value),
+            uint value => value,
+            int value => checked((ulong)value),
+            ushort value => value,
+            short value => checked((ulong)value),
+            byte value => value,
+            sbyte value => checked((ulong)value),
+            _ => Convert.ToUInt64(payload[index], System.Globalization.CultureInfo.InvariantCulture),
         };
     }
 

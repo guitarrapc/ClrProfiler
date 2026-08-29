@@ -13,5 +13,10 @@ public enum ProfilerFeature
     ThreadInfoTimer = 1 << 3,
     GCInfoTimer = 1 << 4,
     ProcessInfoTimer = 1 << 5,
-    All = GCEvent | ThreadPoolEvent | ContentionEvent | ThreadInfoTimer | GCInfoTimer | ProcessInfoTimer,
+    /// <summary>
+    /// Periodically reports <see cref="IProfiler.DroppedEventCount"/> for every profiler the tracker
+    /// owns, so data the profiler discarded is visible instead of silently missing.
+    /// </summary>
+    ProfilerDiagnosticsTimer = 1 << 6,
+    All = GCEvent | ThreadPoolEvent | ContentionEvent | ThreadInfoTimer | GCInfoTimer | ProcessInfoTimer | ProfilerDiagnosticsTimer,
 }
