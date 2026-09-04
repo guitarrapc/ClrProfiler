@@ -332,6 +332,8 @@ tracker.StartTracker();
 
 Per-collection GC durations, ThreadPool starvation, and contention durations are gone in that configuration. The cumulative counters in [Timer metrics](#timer-metrics) still report heap size, GC counts, pause time, and thread pool state.
 
+That configuration overlaps heavily with the built-in `System.Runtime` meter on .NET 9 and later, which reads the same `GC` and `ThreadPool` APIs and likewise opens no EventPipe session. If the timer features are all you can run, weigh them against that meter before keeping this library in the pipeline: [When to use ClrProfiler, and when the Meter API is enough](#when-to-use-clrprofiler-and-when-the-meter-api-is-enough) frames the choice, and the last column of the feature table under [Select instrumentation](#select-instrumentation) maps it feature by feature.
+
 ## Limitations
 
 Deliberate design boundaries worth knowing when interpreting the metrics:
