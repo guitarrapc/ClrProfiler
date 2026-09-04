@@ -6,7 +6,7 @@
 
 .NET already publishes runtime metrics of its own through `System.Diagnostics.Metrics`: the built-in `System.Runtime` meter on .NET 9 and later, `OpenTelemetry.Instrumentation.Runtime` or EventCounters before that. Those are aggregates: collections per generation, cumulative pause time, working set, ThreadPool queue length, lock contention count. They are also the cheapest thing to reach for, so if aggregates answer your question, stop there.
 
-ClrProfiler subscribes to the CLR events behind those aggregates. Every collection keeps its generation, reason, compaction flag, duration, and heap statistics; every suspension keeps its pause duration and reason; every lock contention keeps its duration. It samples the cumulative counters on a timer as well, so one library covers both views, and it reports every event it had to discard. It registers no `Meter` of its own, so it runs alongside the built-in metrics rather than instead of them.
+ClrProfiler subscribes to the CLR events behind those aggregates. Every collection keeps its generation, reason, compaction flag, duration, and heap statistics; every suspension keeps its pause duration and reason; every lock contention keeps its duration. It samples the cumulative counters on a timer as well, so one library covers both views, and it reports every event it had to discard. It registers no `Meter` of its own, so it runs alongside the built-in metrics rather than instead of them. The feature table under [Select instrumentation](#select-instrumentation) maps each feature to its closest built-in instrument.
 
 ## Key Features
 
@@ -74,15 +74,17 @@ tracker.StartTracker();
 
 Available features:
 
-| `ProfilerFeature` | Source | What you get |
-| --- | --- | --- |
-| `GCEvent` | CLR events | GC start/end duration, suspension (pause) duration, post-collection heap statistics |
-| `ThreadPoolEvent` | CLR events | ThreadPool worker adjustments, starvation detection |
-| `ContentionEvent` | CLR events | Monitor lock contention count and durations |
-| `GCInfoTimer` | Periodic sampling | Heap size, allocation bytes, GC counts, generation sizes, cumulative pause time |
-| `ThreadInfoTimer` | Periodic sampling | ThreadPool thread counts, queue length, lock contention count |
-| `ProcessInfoTimer` | Periodic sampling | CPU, private bytes, working set |
-| `ProfilerDiagnosticsTimer` | Periodic sampling | How many events each profiler dropped (see below) |
+| `ProfilerFeature` | Source | What you get | Closest built-in `System.Runtime` meter (.NET 9+) |
+| --- | --- | --- | --- |
+| `GCEvent` | CLR events | GC start/end duration, suspension (pause) duration, post-collection heap statistics | Nothing comparable. `dotnet.gc.pause.time` totals the pauses, but no single collection keeps its reason, duration, or compaction flag. |
+| `ThreadPoolEvent` | CLR events | ThreadPool worker adjustments, starvation detection | Nothing comparable. Adjustment reasons and starvation are not exposed as metrics. |
+| `ContentionEvent` | CLR events | Monitor lock contention count and durations | `dotnet.monitor.lock_contentions` counts contentions and carries no durations. |
+| `GCInfoTimer` | Periodic sampling | Heap size, allocation bytes, GC counts, generation sizes, cumulative pause time | `dotnet.gc.*` covers the same ground. Time-in-GC percent is extra here, heap fragmentation and committed size are extra there. |
+| `ThreadInfoTimer` | Periodic sampling | ThreadPool thread counts, queue length, lock contention count | `dotnet.thread_pool.*` and `dotnet.monitor.lock_contentions` cover most of it. Completion-port and max-thread counts are extra here. |
+| `ProcessInfoTimer` | Periodic sampling | CPU, private bytes, working set | `dotnet.process.cpu.time` (cumulative seconds, not a ready-made percentage) and `dotnet.process.memory.working_set`. No private bytes. |
+| `ProfilerDiagnosticsTimer` | Periodic sampling | How many events each profiler dropped (see below) | Not applicable, this reports on ClrProfiler itself. |
+
+The split from the top of this README shows up in that last column: the timer features overlap with the built-in meter, the event features are the part it cannot give you. The built-in meter also reports JIT, exception, assembly, and active-timer counts, which ClrProfiler does not.
 
 Unselected features create no listener, no subscription, no reader, and no timer. The core package exposes the same option as `ProfilerTrackerOptions.EnabledFeatures`.
 
