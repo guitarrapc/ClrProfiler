@@ -8,6 +8,8 @@
 
 ClrProfiler subscribes to the CLR events behind those aggregates. Every collection keeps its generation, reason, compaction flag, duration, and heap statistics; every suspension keeps its pause duration and reason; every lock contention keeps its duration. It samples the cumulative counters on a timer as well, so one library covers both views, and it reports every event it had to discard. It registers no `Meter` of its own, so it runs alongside the built-in metrics rather than instead of them. The feature table under [Select instrumentation](#select-instrumentation) maps each feature to its closest built-in instrument.
 
+One caveat belongs in that decision. The event features subscribe through `EventListener`, and [dotnet/runtime#122630](https://github.com/dotnet/runtime/issues/122630) reports the shared EventPipe session behind it crashing the process with an access violation after long uptime. The issue is open, it applies to any `EventListener` on the runtime provider rather than to this library specifically, and the workaround is to run the timer features on their own. See [Known runtime issue: EventPipe crashes under `EventListener`](#known-runtime-issue-eventpipe-crashes-under-eventlistener).
+
 ## Key Features
 
 - **Per-event detail**
@@ -308,6 +310,27 @@ Contention events are aggregated before delivery: one `ContentionEventStatistics
 | `Time` | Timestamp of the newest event observed for the flag. The duration fields summarize the whole window, so they are not tied to this timestamp. |
 
 For accepted samples, the values and the totals across deliveries are exact. Samples that could not be accepted (queue full under extreme load) are counted into `DroppedEventCount` and surfaced by the diagnostics metric; see [Observe what the profiler itself dropped](#observe-what-the-profiler-itself-dropped).
+
+## Known runtime issue: EventPipe crashes under `EventListener`
+
+Every CLR event feature (`GCEvent`, `ThreadPoolEvent`, `ContentionEvent`) subscribes through `EventListener`, which the runtime serves from one shared EventPipe session per process. [dotnet/runtime#122630](https://github.com/dotnet/runtime/issues/122630) reports that session taking down the process with an access violation in `EventPipeInternal_GetNextEvent` after hours of uptime and millions of events: a buffer is found zeroed while still linked as unread, which EventPipe's own bookkeeping cannot account for, and native interop elsewhere in the process has not been ruled out as the source of the corruption. The issue is open and unfixed. It is not specific to ClrProfiler; any `EventListener` on `Microsoft-Windows-DotNETRuntime` shares that session. ClrProfiler subscribes at `Informational`, so it never enables `GCAllocationTick` itself, but a listener elsewhere in the process asking for `Verbose` or `LogAlways` raises the event rate for every subscriber.
+
+The workaround is to drop the event features and keep the timer ones. Timer features read `GC.GetGCMemoryInfo()` and the `ThreadPool` APIs directly, so no `EventListener` is constructed and no EventPipe session is opened:
+
+```cs
+using var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
+{
+    TrackerType = ClrTrackerType.Datadog,
+    EnabledFeatures = ProfilerFeature.GCInfoTimer
+        | ProfilerFeature.ThreadInfoTimer
+        | ProfilerFeature.ProcessInfoTimer
+        | ProfilerFeature.ProfilerDiagnosticsTimer,
+});
+tracker.EnableTracker();
+tracker.StartTracker();
+```
+
+Per-collection GC durations, ThreadPool starvation, and contention durations are gone in that configuration. The cumulative counters in [Timer metrics](#timer-metrics) still report heap size, GC counts, pause time, and thread pool state.
 
 ## Limitations
 
