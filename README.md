@@ -1,17 +1,23 @@
 # ClrProfiler
 
-**ClrProfiler** is a zero-dependency .NET library designed to monitor and collect detailed metrics on Contention Events, Garbage Collection (GC), Processes, Threads, and ThreadPool activities through EventListener. This tool is essential for developers aiming to gain in-depth insights into the performance and behavior of their .NET applications.
+**ClrProfiler** is a zero-dependency .NET library that collects Contention, Garbage Collection (GC), Process, Thread, and ThreadPool metrics from the CLR through `EventListener`.
+
+## When to use ClrProfiler, and when the Meter API is enough
+
+.NET already publishes runtime metrics of its own through `System.Diagnostics.Metrics`: the built-in `System.Runtime` meter on .NET 9 and later, `OpenTelemetry.Instrumentation.Runtime` or EventCounters before that. Those are aggregates: collections per generation, cumulative pause time, working set, ThreadPool queue length, lock contention count. They are also the cheapest thing to reach for, so if aggregates answer your question, stop there.
+
+ClrProfiler subscribes to the CLR events behind those aggregates. Every collection keeps its generation, reason, compaction flag, duration, and heap statistics; every suspension keeps its pause duration and reason; every lock contention keeps its duration. It samples the cumulative counters on a timer as well, so one library covers both views, and it reports every event it had to discard. It registers no `Meter` of its own, so it runs alongside the built-in metrics rather than instead of them.
 
 ## Key Features
 
-- **Comprehensive Monitoring**
-  ClrProfiler captures a wide range of CLR events, providing a holistic view of your application's runtime performance.
-- **Cloud Tracing Integration**
-  Seamlessly integrates with cloud tracing services, with built-in support for Datadog, enabling real-time monitoring and analytics.
-- **Ease of Use**
-  Designed for simplicity, ClrProfiler allows for straightforward integration into your projects, facilitating immediate performance tracking without the need for complex configurations.
-- **No Silent Data Loss**
-  Event delivery is non-blocking and bounded, and anything the profiler had to discard is counted and exported as a metric, so you always know when data is incomplete.
+- **Per-event detail**
+  GC, contention, and ThreadPool events keep the attributes the runtime reported, not just a running total.
+- **Cloud tracing integration**
+  Datadog (DogStatsD) and `ILogger` adapters ship with the library, and any other backend is one callback interface away.
+- **Non-blocking by construction**
+  Events are buffered in bounded queues and delivered on dedicated reader tasks, so a slow consumer never blocks your application.
+- **No silent data loss**
+  Anything the profiler had to discard is counted and exported as a metric, so you always know when data is incomplete.
 
 ## Packages
 
@@ -22,13 +28,13 @@
 
 ## Getting Started
 
-To utilize ClrProfiler with Datadog metrics, include the `ClrProfiler.DatadogTracing` package in your project. Initialize the Dogstatsd and enable the CLR tracker as demonstrated below:
+For Datadog metrics, add the `ClrProfiler.DatadogTracing` package:
 
 ```sh
 dotnet add package ClrProfiler.DatadogTracing
 ```
 
-Start Dogstatsd and ClrTracker.
+Then start DogStatsD and the tracker:
 
 ```cs
 // Run Dogstatsd with UDP
@@ -46,13 +52,13 @@ tracker.EnableTracker(); // required, enable clr tracker explicitly
 tracker.StartTracker();
 ```
 
-Now you are ready to use ClrTracker on your application. Metrics will be sent to Datadog by dogstatsd.
+Metrics now flow to Datadog through DogStatsD.
 
-CLR event subscription starts in `StartTracker()`, after the callback handlers are registered, so no event is delivered before there is a handler to observe it. Events that occur before `StartTracker()` (for example GCs during application startup) are not captured as events; the cumulative timer metrics below still cover their totals. Use `StopTracker()` / `RestartTracker()` to pause and resume collection (events during a stop are not collected), and `CancelTracker()` or `Dispose()` to end it.
+Subscription starts in `StartTracker()`, after the callback handlers are registered, so no event is delivered before something can observe it. Anything that happened earlier (startup GCs, for example) is not captured as an event, though the cumulative timer metrics below still include its totals. `StopTracker()` and `RestartTracker()` pause and resume collection, nothing is collected while stopped, and `CancelTracker()` or `Dispose()` ends it.
 
 ### Select instrumentation
 
-All instrumentation remains enabled by default. For lower overhead, select only the CLR events and timer samples your application consumes:
+All instrumentation is enabled by default. For lower overhead, select only the CLR events and timer samples you consume:
 
 ```cs
 using var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
@@ -78,9 +84,9 @@ Available features:
 | `ProcessInfoTimer` | Periodic sampling | CPU, private bytes, working set |
 | `ProfilerDiagnosticsTimer` | Periodic sampling | How many events each profiler dropped (see below) |
 
-Unselected features do not create a listener, subscribe to runtime events, start a reader, or create a timer. The same `EnabledFeatures` option is available on `ProfilerTrackerOptions` when using the core package directly.
+Unselected features create no listener, no subscription, no reader, and no timer. The core package exposes the same option as `ProfilerTrackerOptions.EnabledFeatures`.
 
-Timer-based features sample once per minute by default. The interval is configurable through `ProfilerTrackerOptions.TimerOption` when using the core `ClrProfiler` package directly; `ClrTracker` uses the default interval.
+Timer-based features sample once per minute. `ClrTracker` uses that default; the core package makes the interval configurable through `ProfilerTrackerOptions.TimerOption`.
 
 ### Add custom instrumentation
 
@@ -100,7 +106,7 @@ tracker.EnableTracker();
 tracker.StartTracker();
 ```
 
-Each factory is invoked once when `ProfilerTracker` is constructed. When using `ClrTracker`, this happens inside `EnableTracker()` for Datadog, Logger, and Custom tracker types. The tracker owns the returned profiler and includes it in `Start`, `Stop`, `Restart`, `Cancel`, and `Dispose`. Custom profilers remain responsible for bounded, non-blocking event processing and callback error handling.
+Each factory is invoked once when `ProfilerTracker` is constructed, which for `ClrTracker` happens inside `EnableTracker()` for the Datadog, Logger, and Custom tracker types. The tracker owns the returned profiler and includes it in `Start`, `Stop`, `Restart`, `Cancel`, and `Dispose`. Bounded, non-blocking event processing and callback error handling stay the custom profiler's responsibility.
 
 `IProfiler.DroppedEventCount` reports how many events a profiler discarded; it defaults to `0`, so a profiler written before the member existed keeps compiling. A custom profiler that drops events should report its own cumulative count so the profiler diagnostics metric below covers it.
 
@@ -178,7 +184,7 @@ Event metrics can undercount under extreme load (see the next section), so the t
 
 ## Observe what the profiler itself dropped
 
-Event delivery inside ClrProfiler never blocks your application: every listener buffers events in a bounded queue that keeps the newest values and discards the rest when a consumer cannot keep up. Nothing is lost silently — every discarded event is counted.
+Event delivery never blocks your application: every listener buffers into a bounded queue that keeps the newest values and discards the rest when a consumer cannot keep up. Nothing is lost silently, every discarded event is counted.
 
 `ProfilerFeature.ProfilerDiagnosticsTimer` (enabled by default) samples `IProfiler.DroppedEventCount` for every profiler the tracker owns and emits one sample per profiler per tick, on the same interval as the other timers:
 
@@ -195,7 +201,7 @@ The `profiler` tag is bounded to the built-in profiler names; any other name, in
 
 ## Debugging
 
-If you want debug behaviour, use ClrTrackerType.Logger instead. This will log metrics to ILogger.Debug.
+Use `ClrTrackerType.Logger` to log metrics to `ILogger.Debug` instead of sending them:
 
 ```cs
 // enable clr tracker
@@ -207,11 +213,11 @@ tracker.EnableTracker();
 tracker.StartTracker();
 ```
 
-Logger metric projection avoids formatting work when debug logging is disabled, so leaving the Logger tracker in place with debug logging off costs almost nothing.
+The Logger tracker skips all formatting work when debug logging is disabled, so leaving it in place costs almost nothing.
 
 ## Custom Profiling
 
-This section customizes handling for the built-in instrumentation; use `AdditionalProfilerFactories` above to add new instrumentation. Implement the `IClrTrackerCallbackHandler` interface to define custom behavior for each built-in CLR event type.
+Implement `IClrTrackerCallbackHandler` to handle the built-in instrumentation yourself and reach any metrics backend. To add new instrumentation instead, use `AdditionalProfilerFactories` above.
 
 ```cs
 public class MyCustomTrackerHandler : IClrTrackerCallbackHandler
@@ -225,48 +231,42 @@ public class MyCustomTrackerHandler : IClrTrackerCallbackHandler
 
     public Task OnGCEventAsync(GCEventStatistics statistics)
     {
-        // Custom GC event handling
         _metrics.RecordGC(statistics);
         return Task.CompletedTask;
     }
 
     public Task OnContentionEventAsync(ContentionEventStatistics statistics)
     {
-        // Custom contention event handling
         _metrics.RecordContention(statistics);
         return Task.CompletedTask;
     }
 
     public Task OnThreadPoolEventAsync(ThreadPoolEventStatistics statistics)
     {
-        // Custom threadpool event handling
         _metrics.RecordThreadPool(statistics);
         return Task.CompletedTask;
     }
 
     public Task OnGCInfoTimerAsync(GCInfoStatistics statistics)
     {
-        // Custom GC info timer handling
         _metrics.RecordGCInfo(statistics);
         return Task.CompletedTask;
     }
 
     public Task OnProcessInfoTimerAsync(ProcessInfoStatistics statistics)
     {
-        // Custom process info timer handling
         _metrics.RecordProcessInfo(statistics);
         return Task.CompletedTask;
     }
 
     public Task OnThreadInfoTimerAsync(ThreadInfoStatistics statistics)
     {
-        // Custom thread info timer handling
         _metrics.RecordThreadInfo(statistics);
         return Task.CompletedTask;
     }
 
-    // Optional. Defaults to ignoring the sample, so an existing handler keeps compiling.
-    // Override it to see how much data each profiler discarded.
+    // Optional. Ignoring the sample is the default, so an existing handler keeps
+    // compiling. Override it to see how much data each profiler discarded.
     public Task OnProfilerDiagnosticsTimerAsync(ProfilerDiagnosticsStatistics statistics)
     {
         _metrics.RecordProfilerDiagnostics(statistics);
@@ -275,13 +275,12 @@ public class MyCustomTrackerHandler : IClrTrackerCallbackHandler
 
     public void OnException(Exception exception)
     {
-        // Custom exception handling
         _metrics.RecordError(exception);
     }
 }
 ```
 
-Use your custom handler by specifying `ClrTrackerType.Custom` and providing your handler implementation:
+Then select it with `ClrTrackerType.Custom`:
 
 ```cs
 using var tracker = new ClrTracker(loggerFactory, new ClrTrackerOptions
@@ -293,16 +292,14 @@ tracker.EnableTracker();
 tracker.StartTracker();
 ```
 
-This approach allows you to integrate ClrProfiler with any metrics backend or implement custom logic for processing CLR events.
-
 Your callbacks run on dedicated reader tasks, never on the threads that emit CLR events, so a slow callback slows delivery to itself but never blocks the application. If a callback throws, the exception is routed to `OnException` and delivery continues. `OnException` (and any custom error callback) is itself isolated: if it throws, the exception is swallowed rather than allowed to terminate a reader loop or unwind into an event-dispatch or timer thread.
 
-Contention events are aggregated before delivery: one `ContentionEventStatistics` can represent many contention events observed in the same delivery window, summarized by contention flag.
+Contention events are aggregated before delivery: one `ContentionEventStatistics` can represent many contention events from the same delivery window, summarized by contention flag.
 
 | Member | Meaning |
 | --- | --- |
 | `Count` | Number of completed contention events (`ContentionStop`) represented by this value. |
-| `StartCount` | Number of contention begins (`ContentionStart`) observed in this window. A window can contain starts and no completions — that is what a hang looks like. |
+| `StartCount` | Number of contention begins (`ContentionStart`) observed in this window. A window can contain starts and no completions, that is what a hang looks like. |
 | `DurationNsSum` | Total contention duration in nanoseconds across those events. |
 | `DurationNsMax` | Longest single contention duration in nanoseconds among those events. |
 | `DurationNsMean` | `DurationNsSum / Count`, or 0 when nothing was aggregated. |
@@ -328,7 +325,7 @@ The `sandbox` folder contains two runnable samples:
 - `sandbox/ConsoleApp` runs the Datadog tracker end to end in a single process: it starts a UDP server on `127.0.0.1:8125` that plays the role of a local Datadog agent, allocates memory and forces GCs, and prints every ingested metric to the console.
 - `sandbox/CustomConsoleApp` demonstrates `ClrTrackerType.Custom` with an `IClrTrackerCallbackHandler` implementation that logs statistics through `ILogger`.
 
-Running ConsoleApp shows messages like the following:
+ConsoleApp prints the raw statsd lines as they arrive:
 
 ```
 clr_diagnostics_event.gc.startend_count:17|c|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
@@ -337,25 +334,8 @@ clr_diagnostics_event.gc.suspend_object_count:120|c|#app:ConsoleApp,gc_suspend_r
 clr_diagnostics_event.gc.startend_duration_ms:2.4244|g|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
 clr_diagnostics_event.gc.suspend_duration_ms:2.8953|g|#app:ConsoleApp,gc_suspend_reason:gc
 
-clr_diagnostics_event.gc.suspend_object_count:475|c|#app:ConsoleApp,gc_suspend_reason:gc
-clr_diagnostics_event.gc.startend_count:19|c|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
-
-clr_diagnostics_event.gc.suspend_duration_ms:0.9144|g|#app:ConsoleApp,gc_suspend_reason:gc
-clr_diagnostics_event.gc.startend_duration_ms:1.0946|g|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
-
-clr_diagnostics_event.gc.suspend_object_count:783|c|#app:ConsoleApp,gc_suspend_reason:gc
-clr_diagnostics_event.gc.startend_count:18|c|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
-
-clr_diagnostics_event.gc.suspend_duration_ms:2.7549|g|#app:ConsoleApp,gc_suspend_reason:gc
-clr_diagnostics_event.gc.startend_duration_ms:2.7791|g|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
 clr_diagnostics_event.threadpool.adjustment_avg_throughput:0.00017109293075546954|g|#app:ConsoleApp,thread_adjust_reason:warmup
 clr_diagnostics_event.threadpool.adjustment_new_workerthreads_count:17|g|#app:ConsoleApp,thread_adjust_reason:warmup
-
-clr_diagnostics_event.gc.suspend_object_count:1178|c|#app:ConsoleApp,gc_suspend_reason:gc
-clr_diagnostics_event.gc.startend_count:19|c|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
-
-clr_diagnostics_event.gc.suspend_duration_ms:0.7547999999999999|g|#app:ConsoleApp,gc_suspend_reason:gc
-clr_diagnostics_event.gc.startend_duration_ms:2.6473|g|#app:ConsoleApp,gc_gen:2,gc_type:0,gc_reason:induced
 
 datadog.dogstatsd.client.metrics:362|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
 datadog.dogstatsd.client.bytes_sent:1928|c|#app:ConsoleApp,client:csharp,client_version:7.0.0.0,client_transport:udp,app:ConsoleApp
