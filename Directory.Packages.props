@@ -11,9 +11,9 @@
     <PackageVersion Include="DogStatsD-CSharp-Client" Version="9.2.1" />
     <PackageVersion Include="ZLogger" Version="2.5.10" />
     <!-- Tests -->
-    <PackageVersion Include="Microsoft.Extensions.Logging" Version="9.0.1" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.1" />
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
-    <PackageVersion Include="TUnit" Version="1.12.111" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.403" />
+    <PackageVersion Include="TUnit" Version="1.76.45" />
   </ItemGroup>
 </Project>
